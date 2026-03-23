@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stoneshard-toolsv2"
+version = "0.1.0"
+description = "Current locked Toolsv2 solver/runtime stack."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.setuptools]
+include-package-data = false
+
+[tool.setuptools.packages.find]
+include = ["toolsv2", "toolsv2.*"]
+
+[tool.setuptools.package-data]
+toolsv2 = ["*.md"]
