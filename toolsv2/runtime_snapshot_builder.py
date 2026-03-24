@@ -34,6 +34,7 @@ def _build_runtime_port_for_node(
             owner_local_key=port_definition.port_id,
         ),
         definition_port_id=port_definition.port_id,
+        capacity=port_definition.capacity,
         render_profile=port_definition.render_profile,
         attributes=port_definition.attributes,
     )

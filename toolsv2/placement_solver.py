@@ -233,6 +233,7 @@ def _stabilize_domains(
     node_metadata: Sequence[NodePlacementMetadata],
     ordered_same_row_groups: Sequence[OrderedSameRowGroup],
     port_requirements_by_node_id: Mapping[NodeId, Sequence[PortAttachmentRequirement]],
+    minimum_same_row_gap: int,
 ) -> _StabilizationResult:
     current_domains = dict(domains)
 
@@ -242,6 +243,7 @@ def _stabilize_domains(
             domains=current_domains,
             node_metadata=node_metadata,
             ordered_same_row_groups=ordered_same_row_groups,
+            minimum_same_row_gap=minimum_same_row_gap,
         )
         if propagation_result.has_contradiction:
             return _StabilizationResult(
@@ -278,6 +280,7 @@ def _search_current_grid(
     node_metadata: Sequence[NodePlacementMetadata],
     ordered_same_row_groups: Sequence[OrderedSameRowGroup],
     port_requirements_by_node_id: Mapping[NodeId, Sequence[PortAttachmentRequirement]],
+    minimum_same_row_gap: int,
     domains: dict[NodeId, NodeDomain],
     branch_attempts: tuple[BranchAttempt, ...],
     remaining_seed_limit: int,
@@ -290,6 +293,7 @@ def _search_current_grid(
         node_metadata=node_metadata,
         ordered_same_row_groups=ordered_same_row_groups,
         port_requirements_by_node_id=port_requirements_by_node_id,
+        minimum_same_row_gap=minimum_same_row_gap,
     )
     if stabilized.has_contradiction:
         return _SearchOutcome(
@@ -345,6 +349,7 @@ def _search_current_grid(
             node_metadata=node_metadata,
             ordered_same_row_groups=ordered_same_row_groups,
             port_requirements_by_node_id=port_requirements_by_node_id,
+            minimum_same_row_gap=minimum_same_row_gap,
             domains=branch_domains,
             branch_attempts=next_attempts,
             remaining_seed_limit=remaining_seed_limit - len(found_seeds),
@@ -378,6 +383,7 @@ def solve_placement_on_current_grid(
     ordered_same_row_groups: Sequence[OrderedSameRowGroup] = (),
     port_requirements_by_node_id: Mapping[NodeId, Sequence[PortAttachmentRequirement]] | None = None,
     max_seeds: int = 1,
+    minimum_same_row_gap: int = 1,
 ) -> PlacementResult:
     """Return up to ``max_seeds`` provisional placement seeds on the current grid.
 
@@ -394,6 +400,8 @@ def solve_placement_on_current_grid(
 
     if max_seeds < 1:
         raise ValueError("max_seeds must be at least 1")
+    if minimum_same_row_gap < 0:
+        raise ValueError("minimum_same_row_gap must be non-negative")
 
     normalized_requirements = port_requirements_by_node_id or {}
     _validate_node_definitions(node_definitions, node_metadata)
@@ -403,6 +411,7 @@ def solve_placement_on_current_grid(
         active_grid=active_grid,
         node_metadata=node_metadata,
         ordered_same_row_groups=ordered_same_row_groups,
+        minimum_same_row_gap=minimum_same_row_gap,
     )
     search_outcome = _search_current_grid(
         active_grid=active_grid,
@@ -411,6 +420,7 @@ def solve_placement_on_current_grid(
         node_metadata=node_metadata,
         ordered_same_row_groups=ordered_same_row_groups,
         port_requirements_by_node_id=normalized_requirements,
+        minimum_same_row_gap=minimum_same_row_gap,
         domains=initial_domains,
         branch_attempts=(),
         remaining_seed_limit=max_seeds,

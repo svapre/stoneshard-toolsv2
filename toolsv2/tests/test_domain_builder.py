@@ -18,6 +18,13 @@ def _grid_with_seven_x_rails():
     )
 
 
+def _grid_with_x_rails(*x_rail_ids: str):
+    return build_minimum_active_grid(
+        default_x_rail_ids=x_rail_ids,
+        authored_tier_rail_ids=("tier_0", "tier_1", "tier_2"),
+    )
+
+
 def _x_projection(domain) -> tuple[str, ...]:
     return tuple(sorted({str(junction.x_rail_id) for junction in domain.junctions}))
 
@@ -118,26 +125,98 @@ class DomainBuilderTests(unittest.TestCase):
             _x_projection(domains[NodeId("right")]),
         )
 
-    def test_unsupported_row_shape_fails_loudly(self) -> None:
-        grid = build_minimum_active_grid(
-            default_x_rail_ids=("x0", "x1", "x2", "x3", "x4", "x5"),
-            authored_tier_rail_ids=("tier_0", "tier_1"),
+    def test_three_ordered_nodes_on_six_rails_get_expected_domains(self) -> None:
+        grid = _grid_with_x_rails("x0", "x1", "x2", "x3", "x4", "x5")
+        domains = build_raw_domains(
+            grid,
+            node_metadata=(
+                NodePlacementMetadata(node_id=NodeId("left")),
+                NodePlacementMetadata(node_id=NodeId("middle")),
+                NodePlacementMetadata(node_id=NodeId("right")),
+            ),
+            ordered_same_row_groups=(
+                OrderedSameRowGroup(
+                    ordered_node_ids=(NodeId("left"), NodeId("middle"), NodeId("right")),
+                ),
+            ),
         )
 
-        with self.assertRaises(NotImplementedError):
-            build_raw_domains(
-                grid,
-                node_metadata=(
-                    NodePlacementMetadata(node_id=NodeId("a")),
-                    NodePlacementMetadata(node_id=NodeId("b")),
-                    NodePlacementMetadata(node_id=NodeId("c")),
-                ),
-                ordered_same_row_groups=(
-                    OrderedSameRowGroup(
-                        ordered_node_ids=(NodeId("a"), NodeId("b"), NodeId("c")),
+        self.assertEqual(("x0", "x1"), _x_projection(domains[NodeId("left")]))
+        self.assertEqual(("x2", "x3"), _x_projection(domains[NodeId("middle")]))
+        self.assertEqual(("x4", "x5"), _x_projection(domains[NodeId("right")]))
+
+    def test_five_ordered_nodes_on_nine_rails_collapse_to_unique_pattern(self) -> None:
+        grid = _grid_with_x_rails("x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7", "x8")
+        domains = build_raw_domains(
+            grid,
+            node_metadata=(
+                NodePlacementMetadata(node_id=NodeId("n0")),
+                NodePlacementMetadata(node_id=NodeId("n1")),
+                NodePlacementMetadata(node_id=NodeId("n2")),
+                NodePlacementMetadata(node_id=NodeId("n3")),
+                NodePlacementMetadata(node_id=NodeId("n4")),
+            ),
+            ordered_same_row_groups=(
+                OrderedSameRowGroup(
+                    ordered_node_ids=(
+                        NodeId("n0"),
+                        NodeId("n1"),
+                        NodeId("n2"),
+                        NodeId("n3"),
+                        NodeId("n4"),
                     ),
                 ),
-            )
+            ),
+        )
+
+        self.assertEqual(("x0",), _x_projection(domains[NodeId("n0")]))
+        self.assertEqual(("x2",), _x_projection(domains[NodeId("n1")]))
+        self.assertEqual(("x4",), _x_projection(domains[NodeId("n2")]))
+        self.assertEqual(("x6",), _x_projection(domains[NodeId("n3")]))
+        self.assertEqual(("x8",), _x_projection(domains[NodeId("n4")]))
+
+    def test_impossible_ordered_row_shape_returns_empty_domains(self) -> None:
+        grid = _grid_with_x_rails("x0", "x1", "x2", "x3", "x4", "x5")
+        domains = build_raw_domains(
+            grid,
+            node_metadata=(
+                NodePlacementMetadata(node_id=NodeId("n0")),
+                NodePlacementMetadata(node_id=NodeId("n1")),
+                NodePlacementMetadata(node_id=NodeId("n2")),
+                NodePlacementMetadata(node_id=NodeId("n3")),
+            ),
+            ordered_same_row_groups=(
+                OrderedSameRowGroup(
+                    ordered_node_ids=(NodeId("n0"), NodeId("n1"), NodeId("n2"), NodeId("n3")),
+                ),
+            ),
+        )
+
+        self.assertEqual(0, len(domains[NodeId("n0")].junctions))
+        self.assertEqual(0, len(domains[NodeId("n1")].junctions))
+        self.assertEqual(0, len(domains[NodeId("n2")].junctions))
+        self.assertEqual(0, len(domains[NodeId("n3")].junctions))
+
+    def test_ordered_row_domains_can_use_non_vanilla_minimum_gap(self) -> None:
+        grid = _grid_with_seven_x_rails()
+        domains = build_raw_domains(
+            grid,
+            node_metadata=(
+                NodePlacementMetadata(node_id=NodeId("left")),
+                NodePlacementMetadata(node_id=NodeId("middle")),
+                NodePlacementMetadata(node_id=NodeId("right")),
+            ),
+            ordered_same_row_groups=(
+                OrderedSameRowGroup(
+                    ordered_node_ids=(NodeId("left"), NodeId("middle"), NodeId("right")),
+                ),
+            ),
+            minimum_same_row_gap=2,
+        )
+
+        self.assertEqual(("x0",), _x_projection(domains[NodeId("left")]))
+        self.assertEqual(("x3",), _x_projection(domains[NodeId("middle")]))
+        self.assertEqual(("x6",), _x_projection(domains[NodeId("right")]))
 
 
 if __name__ == "__main__":

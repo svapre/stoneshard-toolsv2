@@ -15,6 +15,13 @@ def _grid_with_seven_x_rails():
     )
 
 
+def _grid_with_x_rails(*x_rail_ids: str):
+    return build_minimum_active_grid(
+        default_x_rail_ids=x_rail_ids,
+        authored_tier_rail_ids=("tier_0", "tier_1"),
+    )
+
+
 def _domain(node_id: NodeId, junctions: tuple[Junction, ...]) -> NodeDomain:
     return NodeDomain(node_id=node_id, junctions=frozenset(junctions))
 
@@ -206,26 +213,134 @@ class PropagationTests(unittest.TestCase):
         self.assertIn(NodeId("a"), result.contradiction_node_ids)
         self.assertIn(NodeId("b"), result.contradiction_node_ids)
 
-    def test_unsupported_row_shape_fails_loudly(self) -> None:
-        grid = build_minimum_active_grid(
-            default_x_rail_ids=("x0", "x1", "x2", "x3", "x4", "x5"),
-            authored_tier_rail_ids=("tier_0", "tier_1"),
-        )
-
-        with self.assertRaises(NotImplementedError):
-            propagate_domains(
-                active_grid=grid,
-                domains={
-                    NodeId("a"): _domain(NodeId("a"), (Junction(grid.x_rails[0].rail_id, grid.y_rails[0].rail_id),)),
-                    NodeId("b"): _domain(NodeId("b"), (Junction(grid.x_rails[2].rail_id, grid.y_rails[0].rail_id),)),
-                    NodeId("c"): _domain(NodeId("c"), (Junction(grid.x_rails[4].rail_id, grid.y_rails[0].rail_id),)),
-                },
-                ordered_same_row_groups=(
-                    OrderedSameRowGroup(
-                        ordered_node_ids=(NodeId("a"), NodeId("b"), NodeId("c")),
+    def test_three_node_row_supports_six_x_rails(self) -> None:
+        grid = _grid_with_x_rails("x0", "x1", "x2", "x3", "x4", "x5")
+        tier_0 = grid.y_rails[0].rail_id
+        result = propagate_domains(
+            active_grid=grid,
+            domains={
+                NodeId("left"): _domain(
+                    NodeId("left"),
+                    (
+                        Junction(grid.x_rails[1].rail_id, tier_0),
+                        Junction(grid.x_rails[2].rail_id, tier_0),
                     ),
                 ),
-            )
+                NodeId("middle"): _domain(
+                    NodeId("middle"),
+                    (
+                        Junction(grid.x_rails[2].rail_id, tier_0),
+                        Junction(grid.x_rails[3].rail_id, tier_0),
+                    ),
+                ),
+                NodeId("right"): _domain(
+                    NodeId("right"),
+                    (
+                        Junction(grid.x_rails[4].rail_id, tier_0),
+                        Junction(grid.x_rails[5].rail_id, tier_0),
+                    ),
+                ),
+            },
+            ordered_same_row_groups=(
+                OrderedSameRowGroup(
+                    ordered_node_ids=(NodeId("left"), NodeId("middle"), NodeId("right")),
+                ),
+            ),
+        )
+
+        self.assertFalse(result.has_contradiction)
+        self.assertEqual(("x1",), _x_projection(result.domains[NodeId("left")]))
+        self.assertEqual(("x3",), _x_projection(result.domains[NodeId("middle")]))
+        self.assertEqual(("x5",), _x_projection(result.domains[NodeId("right")]))
+
+    def test_impossible_ordered_row_shape_reports_contradiction(self) -> None:
+        grid = _grid_with_x_rails("x0", "x1", "x2", "x3", "x4", "x5")
+        tier_0 = grid.y_rails[0].rail_id
+        result = propagate_domains(
+            active_grid=grid,
+            domains={
+                NodeId("n0"): _domain(
+                    NodeId("n0"),
+                    tuple(
+                        Junction(x_rail.rail_id, tier_0)
+                        for x_rail in grid.x_rails
+                    ),
+                ),
+                NodeId("n1"): _domain(
+                    NodeId("n1"),
+                    tuple(
+                        Junction(x_rail.rail_id, tier_0)
+                        for x_rail in grid.x_rails
+                    ),
+                ),
+                NodeId("n2"): _domain(
+                    NodeId("n2"),
+                    tuple(
+                        Junction(x_rail.rail_id, tier_0)
+                        for x_rail in grid.x_rails
+                    ),
+                ),
+                NodeId("n3"): _domain(
+                    NodeId("n3"),
+                    tuple(
+                        Junction(x_rail.rail_id, tier_0)
+                        for x_rail in grid.x_rails
+                    ),
+                ),
+            },
+            ordered_same_row_groups=(
+                OrderedSameRowGroup(
+                    ordered_node_ids=(NodeId("n0"), NodeId("n1"), NodeId("n2"), NodeId("n3")),
+                ),
+            ),
+        )
+
+        self.assertTrue(result.has_contradiction)
+        self.assertEqual(
+            (NodeId("n0"), NodeId("n1"), NodeId("n2"), NodeId("n3")),
+            result.contradiction_node_ids,
+        )
+
+    def test_ordered_row_propagation_can_use_non_vanilla_minimum_gap(self) -> None:
+        grid = _grid_with_seven_x_rails()
+        tier_0 = grid.y_rails[0].rail_id
+        result = propagate_domains(
+            active_grid=grid,
+            domains={
+                NodeId("left"): _domain(
+                    NodeId("left"),
+                    tuple(
+                        Junction(grid.x_rails[index].rail_id, tier_0)
+                        for index in (0, 1)
+                    ),
+                ),
+                NodeId("middle"): _domain(
+                    NodeId("middle"),
+                    tuple(
+                        Junction(grid.x_rails[index].rail_id, tier_0)
+                        for index in (2, 3, 4)
+                    ),
+                ),
+                NodeId("right"): _domain(
+                    NodeId("right"),
+                    tuple(
+                        Junction(grid.x_rails[index].rail_id, tier_0)
+                        for index in (5, 6)
+                    ),
+                ),
+            },
+            ordered_same_row_groups=(
+                OrderedSameRowGroup(
+                    ordered_node_ids=(NodeId("left"), NodeId("middle"), NodeId("right")),
+                ),
+            ),
+            minimum_same_row_gap=2,
+        )
+
+        self.assertFalse(result.has_contradiction)
+        self.assertEqual(("x0",), _x_projection(result.domains[NodeId("left")]))
+        self.assertEqual(("x3",), _x_projection(result.domains[NodeId("middle")]))
+        self.assertEqual(("x6",), _x_projection(result.domains[NodeId("right")]))
 
     def test_tier_propagation_intersects_y_domain(self) -> None:
         grid = _grid_with_seven_x_rails()

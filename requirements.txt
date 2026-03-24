@@ -1,1 +1,1 @@
-# No external runtime dependencies are required yet.
+Pillow>=10,<12

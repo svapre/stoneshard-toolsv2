@@ -29,7 +29,7 @@ def _policy(*, north: bool = True, south: bool = True, east: bool = True, west: 
     )
 
 
-def _node_with_port(port_id: str, orientation: str, capacity: int = 1) -> NodeDefinition:
+def _node_with_port(port_id: str, orientation: str, capacity: int | None = None) -> NodeDefinition:
     return NodeDefinition(
         node_id=NodeId("screened"),
         kind="generic",
@@ -83,7 +83,7 @@ class ScreeningTests(unittest.TestCase):
         self.assertTrue(result.has_contradiction)
         self.assertEqual(frozenset(), result.domain.junctions)
 
-    def test_candidate_is_removed_when_node_occupancy_blocks_required_terminal_attachment(self) -> None:
+    def test_candidate_is_not_removed_only_because_required_adjacent_site_is_occupied(self) -> None:
         grid = _grid()
         candidate = Junction(grid.x_rails[0].rail_id, grid.y_rails[0].rail_id)
         blocked_site = Junction(grid.x_rails[1].rail_id, grid.y_rails[0].rail_id)
@@ -102,8 +102,8 @@ class ScreeningTests(unittest.TestCase):
             requirements=(PortAttachmentRequirement(port_id=PortId("east_out")),),
         )
 
-        self.assertTrue(result.has_contradiction)
-        self.assertEqual(frozenset(), result.domain.junctions)
+        self.assertFalse(result.has_contradiction)
+        self.assertEqual(frozenset({candidate}), result.domain.junctions)
 
     def test_screening_ignores_non_node_junction_connection_state(self) -> None:
         grid = _grid()
@@ -141,7 +141,21 @@ class ScreeningTests(unittest.TestCase):
                 requirements=(PortAttachmentRequirement(port_id=PortId("east_out"), required_attachments=2),),
             )
 
+    def test_unbounded_default_capacity_does_not_create_raw_capacity_contradiction(self) -> None:
+        grid = _grid()
+        candidate = Junction(grid.x_rails[0].rail_id, grid.y_rails[0].rail_id)
+        domain = _domain("screened", candidate)
+
+        with self.assertRaises(NotImplementedError):
+            screen_node_domain(
+                active_grid=grid,
+                routing_policy=_policy(),
+                node_definition=_node_with_port("east_out", "east"),
+                domain=domain,
+                node_domains={NodeId("screened"): domain},
+                requirements=(PortAttachmentRequirement(port_id=PortId("east_out"), required_attachments=2),),
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
-

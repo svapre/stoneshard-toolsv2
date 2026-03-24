@@ -41,12 +41,12 @@ class PortDefinition:
 
     port_id: PortId
     orientation: CardinalDirection
-    capacity: int
+    capacity: int | None = None
     render_profile: RenderProfileRef = field(default_factory=RenderProfileRef)
     attributes: Attributes = ()
 
     def __post_init__(self) -> None:
-        if self.capacity < 0:
+        if self.capacity is not None and self.capacity < 0:
             raise ValueError("PortDefinition.capacity must be non-negative")
         if not isinstance(self.render_profile, RenderProfileRef):
             raise TypeError("PortDefinition.render_profile must be RenderProfileRef")

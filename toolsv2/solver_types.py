@@ -38,6 +38,8 @@ from toolsv2.solver_common import (
 )
 from toolsv2.solver_runtime import (
     build_runtime_junctions_for_active_grid,
+    can_port_ref_accept_new_attachment,
+    direct_attachment_count,
     Endpoint,
     is_edge_id_usable,
     is_object_ref_active,
@@ -59,8 +61,10 @@ __all__ = [
     "Attributes",
     "BandId",
     "build_runtime_junctions_for_active_grid",
+    "can_port_ref_accept_new_attachment",
     "CandidateEligibility",
     "CardinalDirection",
+    "direct_attachment_count",
     "EdgeScope",
     "EdgeTraversalMode",
     "Endpoint",

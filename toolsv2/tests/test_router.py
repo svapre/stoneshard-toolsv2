@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
 
 from toolsv2.adjacency import V1JunctionAdjacencyFinder
 from toolsv2.eligibility import (
@@ -24,14 +25,33 @@ from toolsv2.solver_types import (
     RuntimeObjectSet,
     build_runtime_junctions_for_active_grid,
     NodeId,
+    RenderProfileRef,
+)
+from toolsv2.visual_profiles import (
+    DEFAULT_AND_KNOT_PROFILE_KEY,
+    build_v1_plain_junction_visual_profile_catalog,
+    build_v1_core_visual_profile_catalog,
 )
 
 
 class RouterTests(unittest.TestCase):
-    def _build_router_for_grid(self, grid) -> V1Router:
+    def _build_router_for_grid(self, grid, visual_profile_catalog=None) -> V1Router:
         return V1Router(
-            adjacency_finder=V1JunctionAdjacencyFinder(active_grid=grid),
-            geometry_build_feasibility=V1JunctionGeometryBuildFeasibility(),
+            adjacency_finder=V1JunctionAdjacencyFinder(
+                active_grid=grid,
+                visual_profile_catalog=(
+                    visual_profile_catalog
+                    if visual_profile_catalog is not None
+                    else build_v1_plain_junction_visual_profile_catalog()
+                ),
+            ),
+            geometry_build_feasibility=V1JunctionGeometryBuildFeasibility(
+                visual_profile_catalog=(
+                    visual_profile_catalog
+                    if visual_profile_catalog is not None
+                    else build_v1_plain_junction_visual_profile_catalog()
+                ),
+            ),
             candidate_eligibility=V1CandidateEligibility(),
         )
 
@@ -155,6 +175,180 @@ class RouterTests(unittest.TestCase):
         self.assertEqual(1, len(result.route_plan.steps))
         self.assertEqual("built_edge", result.route_plan.steps[0].step_kind)
         self.assertEqual(edge_id, result.route_plan.steps[0].via_edge_id)
+
+    def test_router_can_attach_source_and_sink_nodes_through_adjacent_junctions(self) -> None:
+        grid = build_minimum_active_grid(
+            default_x_rail_ids=("x0", "x1", "x2"),
+            authored_tier_rail_ids=("tier_0",),
+        )
+        left_junction, middle_junction, right_junction = build_runtime_junctions_for_active_grid(grid)
+        source_node = RuntimeNode(
+            node_id=NodeId("source_node"),
+            current_junction_id=left_junction.junction_id,
+            ports=(
+                Port(port_ref=PortRef(owner_ref=NodeId("source_node"), owner_local_key=PortId("top"))),
+                Port(port_ref=PortRef(owner_ref=NodeId("source_node"), owner_local_key=PortId("left"))),
+                Port(port_ref=PortRef(owner_ref=NodeId("source_node"), owner_local_key=PortId("right"))),
+                Port(port_ref=PortRef(owner_ref=NodeId("source_node"), owner_local_key=PortId("bottom"))),
+            ),
+            render_profile=RenderProfileRef(profile_key=DEFAULT_AND_KNOT_PROFILE_KEY),
+        )
+        sink_node = RuntimeNode(
+            node_id=NodeId("sink_node"),
+            current_junction_id=right_junction.junction_id,
+            ports=(
+                Port(port_ref=PortRef(owner_ref=NodeId("sink_node"), owner_local_key=PortId("top"))),
+                Port(port_ref=PortRef(owner_ref=NodeId("sink_node"), owner_local_key=PortId("left"))),
+                Port(port_ref=PortRef(owner_ref=NodeId("sink_node"), owner_local_key=PortId("right"))),
+                Port(port_ref=PortRef(owner_ref=NodeId("sink_node"), owner_local_key=PortId("bottom"))),
+            ),
+            render_profile=RenderProfileRef(profile_key=DEFAULT_AND_KNOT_PROFILE_KEY),
+        )
+        state = PortGraphState(
+            objects=RuntimeObjectSet(
+                nodes=(source_node, sink_node),
+                junctions=(
+                    replace(left_junction, occupying_node_id=source_node.node_id, is_active=False),
+                    middle_junction,
+                    replace(right_junction, occupying_node_id=sink_node.node_id, is_active=False),
+                ),
+            ),
+        )
+        visual_profile_catalog = build_v1_core_visual_profile_catalog(
+            skill_frame_top_port_id=PortId("top"),
+            skill_frame_bottom_port_id=PortId("bottom"),
+            and_knot_top_port_id=PortId("top"),
+            and_knot_left_port_id=PortId("left"),
+            and_knot_right_port_id=PortId("right"),
+            and_knot_bottom_port_id=PortId("bottom"),
+        )
+        router = self._build_router_for_grid(grid, visual_profile_catalog=visual_profile_catalog)
+        schema_view = StaticRouteRequirementSchemaView(
+            source_allowances=(
+                RouteRequirementPortAllowance(
+                    object_ref=source_node.node_id,
+                    requirement_kind="flow",
+                    port_local_keys=(PortId("right"),),
+                ),
+            ),
+            sink_allowances=(
+                RouteRequirementPortAllowance(
+                    object_ref=sink_node.node_id,
+                    requirement_kind="flow",
+                    port_local_keys=(PortId("left"),),
+                ),
+            ),
+        )
+        route_requirement = RouteRequirement(
+            requirement_id="req::node_attachment",
+            source_object_ref=source_node.node_id,
+            sink_object_ref=sink_node.node_id,
+            requirement_kind="flow",
+        )
+
+        result = router(state, schema_view, route_requirement)
+
+        self.assertEqual("success", result.status)
+        self.assertIsNotNone(result.route_plan)
+        self.assertEqual(
+            PortRef(owner_ref=sink_node.node_id, owner_local_key=PortId("left")),
+            result.route_plan.reached_sink_port_ref,
+        )
+        self.assertEqual(
+            [
+                PortRef(owner_ref=source_node.node_id, owner_local_key=PortId("right")),
+                PortRef(owner_ref=middle_junction.junction_id, owner_local_key=PortId("west")),
+                PortRef(owner_ref=middle_junction.junction_id, owner_local_key=PortId("east")),
+                PortRef(owner_ref=sink_node.node_id, owner_local_key=PortId("left")),
+            ],
+            [
+                result.route_plan.start_entry_context.current_port_ref,
+                *(step.to_entry_context.current_port_ref for step in result.route_plan.steps),
+            ],
+        )
+        self.assertTrue(
+            all(step.step_kind == "tentative_connection" for step in result.route_plan.steps)
+        )
+
+    def test_router_can_connect_adjacent_occupied_nodes_directly_across_shared_boundary(self) -> None:
+        grid = build_minimum_active_grid(
+            default_x_rail_ids=("x0", "x1"),
+            authored_tier_rail_ids=("tier_0",),
+        )
+        left_junction, right_junction = build_runtime_junctions_for_active_grid(grid)
+        source_node = RuntimeNode(
+            node_id=NodeId("source_node"),
+            current_junction_id=left_junction.junction_id,
+            ports=(
+                Port(port_ref=PortRef(owner_ref=NodeId("source_node"), owner_local_key=PortId("top"))),
+                Port(port_ref=PortRef(owner_ref=NodeId("source_node"), owner_local_key=PortId("left"))),
+                Port(port_ref=PortRef(owner_ref=NodeId("source_node"), owner_local_key=PortId("right"))),
+                Port(port_ref=PortRef(owner_ref=NodeId("source_node"), owner_local_key=PortId("bottom"))),
+            ),
+            render_profile=RenderProfileRef(profile_key=DEFAULT_AND_KNOT_PROFILE_KEY),
+        )
+        sink_node = RuntimeNode(
+            node_id=NodeId("sink_node"),
+            current_junction_id=right_junction.junction_id,
+            ports=(
+                Port(port_ref=PortRef(owner_ref=NodeId("sink_node"), owner_local_key=PortId("top"))),
+                Port(port_ref=PortRef(owner_ref=NodeId("sink_node"), owner_local_key=PortId("left"))),
+                Port(port_ref=PortRef(owner_ref=NodeId("sink_node"), owner_local_key=PortId("right"))),
+                Port(port_ref=PortRef(owner_ref=NodeId("sink_node"), owner_local_key=PortId("bottom"))),
+            ),
+            render_profile=RenderProfileRef(profile_key=DEFAULT_AND_KNOT_PROFILE_KEY),
+        )
+        state = PortGraphState(
+            objects=RuntimeObjectSet(
+                nodes=(source_node, sink_node),
+                junctions=(
+                    replace(left_junction, occupying_node_id=source_node.node_id, is_active=False),
+                    replace(right_junction, occupying_node_id=sink_node.node_id, is_active=False),
+                ),
+            ),
+        )
+        visual_profile_catalog = build_v1_core_visual_profile_catalog(
+            skill_frame_top_port_id=PortId("top"),
+            skill_frame_bottom_port_id=PortId("bottom"),
+            and_knot_top_port_id=PortId("top"),
+            and_knot_left_port_id=PortId("left"),
+            and_knot_right_port_id=PortId("right"),
+            and_knot_bottom_port_id=PortId("bottom"),
+        )
+        router = self._build_router_for_grid(grid, visual_profile_catalog=visual_profile_catalog)
+        schema_view = StaticRouteRequirementSchemaView(
+            source_allowances=(
+                RouteRequirementPortAllowance(
+                    object_ref=source_node.node_id,
+                    requirement_kind="flow",
+                    port_local_keys=(PortId("right"),),
+                ),
+            ),
+            sink_allowances=(
+                RouteRequirementPortAllowance(
+                    object_ref=sink_node.node_id,
+                    requirement_kind="flow",
+                    port_local_keys=(PortId("left"),),
+                ),
+            ),
+        )
+        route_requirement = RouteRequirement(
+            requirement_id="req::direct_node_to_node",
+            source_object_ref=source_node.node_id,
+            sink_object_ref=sink_node.node_id,
+            requirement_kind="flow",
+        )
+
+        result = router(state, schema_view, route_requirement)
+
+        self.assertEqual("success", result.status)
+        self.assertIsNotNone(result.route_plan)
+        self.assertEqual(
+            PortRef(owner_ref=sink_node.node_id, owner_local_key=PortId("left")),
+            result.route_plan.reached_sink_port_ref,
+        )
+        self.assertEqual(1, len(result.route_plan.steps))
+        self.assertEqual("tentative_connection", result.route_plan.steps[0].step_kind)
 
     def test_router_fails_cleanly_when_no_valid_sink_port_is_reachable(self) -> None:
         source_port_ref = PortRef(

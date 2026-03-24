@@ -7,7 +7,7 @@ back into the logical solver core.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal, NewType, Protocol
 
 from toolsv2.solver_common import (
@@ -27,6 +27,17 @@ RenderTemplateKey = NewType("RenderTemplateKey", str)
 ConnectionFamilyKey = NewType("ConnectionFamilyKey", str)
 CompositionOperatorId = NewType("CompositionOperatorId", str)
 RenderTemplateKind = Literal["pixel_mask", "sprite_ref"]
+ConnectionRuleKind = Literal["repeat_span", "local_connection_piece"]
+
+
+DEFAULT_BACKGROUND_LAYER_ID = VisualLayerId("background")
+DEFAULT_SHADOW_LAYER_ID = VisualLayerId("shadow")
+DEFAULT_ROAD_LAYER_ID = VisualLayerId("road")
+DEFAULT_OBJECT_BODY_LAYER_ID = VisualLayerId("object_body")
+DEFAULT_OBJECT_FOREGROUND_LAYER_ID = VisualLayerId("object_foreground")
+
+COMPOSITION_OVERWRITE = CompositionOperatorId("overwrite")
+COMPOSITION_MAX_LIGHT = CompositionOperatorId("max_light")
 
 
 class LogicalToRenderMapper(Protocol):
@@ -50,7 +61,13 @@ LogicalToPixelMapper = LogicalToRenderMapper
 
 @dataclass(frozen=True, slots=True)
 class LocalFootprint:
-    """Local visual/build footprint around one object anchor."""
+    """Local visual/build footprint around one object anchor.
+
+    Local object coordinates are centered on the object anchor by default:
+    ``(0, 0)`` is the anchor, ``+x`` points right, and ``+y`` points down.
+    ``anchor_x`` / ``anchor_y`` are only needed when a profile wants the
+    logical placement anchor to differ from that centered default.
+    """
 
     width: int
     height: int
@@ -68,7 +85,11 @@ class LocalFootprint:
 
 @dataclass(frozen=True, slots=True)
 class PortGeometrySpec:
-    """Visual/build geometry for one local object port."""
+    """Visual/build geometry for one local object port.
+
+    ``offset_x`` / ``offset_y`` are local coordinates relative to the object
+    anchor using the centered render-space convention.
+    """
 
     port_id: PortId
     offset_x: int
@@ -165,15 +186,70 @@ class RenderTemplateSpec:
 
 
 @dataclass(frozen=True, slots=True)
+class RenderTransformSpec:
+    """Data-only transform applied to a render template instance."""
+
+    quarter_turns_clockwise: int = 0
+    mirror_x: bool = False
+    mirror_y: bool = False
+    attributes: Attributes = ()
+
+    def __post_init__(self) -> None:
+        if self.quarter_turns_clockwise not in (0, 1, 2, 3):
+            raise ValueError("RenderTransformSpec.quarter_turns_clockwise must be 0..3")
+        _ensure_unique_keys("RenderTransformSpec.attributes", self.attributes)
+
+
+@dataclass(frozen=True, slots=True)
 class RenderTemplateBinding:
     """One style-layer binding to a render template."""
 
     layer_id: VisualLayerId
     template_key: RenderTemplateKey
+    offset_x: int = 0
+    offset_y: int = 0
+    transform: RenderTransformSpec = field(default_factory=RenderTransformSpec)
     attributes: Attributes = ()
 
     def __post_init__(self) -> None:
         _ensure_unique_keys("RenderTemplateBinding.attributes", self.attributes)
+
+
+@dataclass(frozen=True, slots=True)
+class LocalConnectionTemplateSpec:
+    """One undirected local-connection visual binding for a port pair."""
+
+    port_ids: tuple[PortId, PortId]
+    binding: RenderTemplateBinding
+    attributes: Attributes = ()
+
+    def __post_init__(self) -> None:
+        if len(self.port_ids) != 2:
+            raise ValueError("LocalConnectionTemplateSpec.port_ids must contain exactly two ports")
+        if self.port_ids[0] == self.port_ids[1]:
+            raise ValueError("LocalConnectionTemplateSpec requires distinct ports")
+        _ensure_unique_keys("LocalConnectionTemplateSpec.attributes", self.attributes)
+
+
+@dataclass(frozen=True, slots=True)
+class JunctionPatternOverrideSpec:
+    """Optional data-only junction pattern override for future render upgrades.
+
+    V1 junction rendering still uses per-connection piece composition only.
+    This record freezes a data-only extension point so later T/cross overrides
+    can be added through profile data rather than engine rewrites.
+    """
+
+    engaged_port_ids: tuple[PortId, ...]
+    template_bindings: tuple[RenderTemplateBinding, ...] = ()
+    attributes: Attributes = ()
+
+    def __post_init__(self) -> None:
+        _ensure_unique_strings(
+            "JunctionPatternOverrideSpec.engaged_port_ids",
+            tuple(str(port_id) for port_id in self.engaged_port_ids),
+        )
+        _ensure_unique_keys("JunctionPatternOverrideSpec.attributes", self.attributes)
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,10 +258,51 @@ class RenderStyleProfile:
 
     profile_key: RenderProfileKey
     template_bindings: tuple[RenderTemplateBinding, ...] = ()
+    local_connection_templates: tuple[LocalConnectionTemplateSpec, ...] = ()
+    connection_pattern_overrides: tuple[JunctionPatternOverrideSpec, ...] = ()
     attributes: Attributes = ()
 
     def __post_init__(self) -> None:
+        _ensure_unique_strings(
+            "RenderStyleProfile.local_connection_templates",
+            tuple(
+                "|".join(sorted(str(port_id) for port_id in template.port_ids))
+                for template in self.local_connection_templates
+            ),
+        )
+        _ensure_unique_strings(
+            "RenderStyleProfile.connection_pattern_overrides",
+            tuple(
+                "|".join(sorted(str(port_id) for port_id in override.engaged_port_ids))
+                for override in self.connection_pattern_overrides
+            ),
+        )
         _ensure_unique_keys("RenderStyleProfile.attributes", self.attributes)
+
+
+@dataclass(frozen=True, slots=True)
+class ConnectionFamilyProfile:
+    """Static build/render family data for one connection technology."""
+
+    family_key: ConnectionFamilyKey
+    rule_kind: ConnectionRuleKind
+    shape_kind: str
+    layer_id: VisualLayerId
+    template_keys: tuple[RenderTemplateKey, ...] = ()
+    attributes: Attributes = ()
+
+    def __post_init__(self) -> None:
+        if self.rule_kind not in ("repeat_span", "local_connection_piece"):
+            raise ValueError(
+                "ConnectionFamilyProfile.rule_kind must be 'repeat_span' or 'local_connection_piece'"
+            )
+        if not self.shape_kind:
+            raise ValueError("ConnectionFamilyProfile.shape_kind must be non-empty")
+        _ensure_unique_strings(
+            "ConnectionFamilyProfile.template_keys",
+            tuple(str(template_key) for template_key in self.template_keys),
+        )
+        _ensure_unique_keys("ConnectionFamilyProfile.attributes", self.attributes)
 
 
 class VisualProfileCatalog(Protocol):
@@ -203,6 +320,12 @@ class VisualProfileCatalog(Protocol):
     def render_template_spec(self, template_key: RenderTemplateKey) -> RenderTemplateSpec:
         """Return one concrete render template specification."""
 
+    def connection_family_profile(
+        self,
+        family_key: ConnectionFamilyKey,
+    ) -> ConnectionFamilyProfile:
+        """Return one static connection-family profile."""
+
 
 @dataclass(frozen=True, slots=True)
 class StaticVisualProfileCatalog:
@@ -212,6 +335,7 @@ class StaticVisualProfileCatalog:
     render_style_profiles: tuple[RenderStyleProfile, ...] = ()
     render_layers: tuple[RenderLayerSpec, ...] = ()
     render_templates: tuple[RenderTemplateSpec, ...] = ()
+    connection_families: tuple[ConnectionFamilyProfile, ...] = ()
 
     def __post_init__(self) -> None:
         _ensure_unique_strings(
@@ -229,6 +353,10 @@ class StaticVisualProfileCatalog:
         _ensure_unique_strings(
             "StaticVisualProfileCatalog.render_templates",
             tuple(str(template.template_key) for template in self.render_templates),
+        )
+        _ensure_unique_strings(
+            "StaticVisualProfileCatalog.connection_families",
+            tuple(str(profile.family_key) for profile in self.connection_families),
         )
 
     def build_geometry_profile(self, profile_key: RenderProfileKey) -> BuildGeometryProfile:
@@ -255,9 +383,67 @@ class StaticVisualProfileCatalog:
                 return template
         raise KeyError(f"Unknown render template_key: {template_key}")
 
+    def connection_family_profile(
+        self,
+        family_key: ConnectionFamilyKey,
+    ) -> ConnectionFamilyProfile:
+        for profile in self.connection_families:
+            if profile.family_key == family_key:
+                return profile
+        raise KeyError(f"Unknown connection family_key: {family_key}")
+
 
 DEFAULT_PLAIN_JUNCTION_PROFILE_KEY = RenderProfileKey("junction/plain")
-DEFAULT_PLAIN_CONNECTION_FAMILY_KEY = ConnectionFamilyKey("road_basic")
+DEFAULT_SKILL_FRAME_PROFILE_KEY = RenderProfileKey("node/skill_frame")
+DEFAULT_AND_KNOT_PROFILE_KEY = RenderProfileKey("node/and_knot")
+DEFAULT_EXTERNAL_STRAIGHT_CONNECTION_FAMILY_KEY = ConnectionFamilyKey("road_external_straight")
+DEFAULT_JUNCTION_PIECE_CONNECTION_FAMILY_KEY = ConnectionFamilyKey("road_junction_piece")
+# Backward-compatible alias for the current default external family.
+DEFAULT_PLAIN_CONNECTION_FAMILY_KEY = DEFAULT_EXTERNAL_STRAIGHT_CONNECTION_FAMILY_KEY
+
+DEFAULT_SKILL_FRAME_BODY_TEMPLATE_KEY = RenderTemplateKey("node/skill_frame/body")
+DEFAULT_SKILL_FRAME_SHADOW_TEMPLATE_KEY = RenderTemplateKey("node/skill_frame/shadow")
+DEFAULT_AND_KNOT_BODY_TEMPLATE_KEY = RenderTemplateKey("node/and_knot/body")
+DEFAULT_EXTERNAL_STRAIGHT_TEMPLATE_KEY = RenderTemplateKey(
+    "connection/external_straight/primitive"
+)
+DEFAULT_JUNCTION_CORNER_TEMPLATE_KEY = RenderTemplateKey(
+    "connection/junction_piece/corner_tr"
+)
+DEFAULT_EXTERNAL_STRAIGHT_HORIZONTAL_TEMPLATE_KEY = DEFAULT_EXTERNAL_STRAIGHT_TEMPLATE_KEY
+DEFAULT_EXTERNAL_STRAIGHT_VERTICAL_TEMPLATE_KEY = DEFAULT_EXTERNAL_STRAIGHT_TEMPLATE_KEY
+
+
+def build_v1_default_render_layers() -> tuple[RenderLayerSpec, ...]:
+    """Return the shared absolute layer catalog for the current renderer plan."""
+
+    return (
+        RenderLayerSpec(
+            layer_id=DEFAULT_BACKGROUND_LAYER_ID,
+            order=0,
+            composition_operator=COMPOSITION_OVERWRITE,
+        ),
+        RenderLayerSpec(
+            layer_id=DEFAULT_SHADOW_LAYER_ID,
+            order=1,
+            composition_operator=COMPOSITION_OVERWRITE,
+        ),
+        RenderLayerSpec(
+            layer_id=DEFAULT_ROAD_LAYER_ID,
+            order=3,
+            composition_operator=COMPOSITION_MAX_LIGHT,
+        ),
+        RenderLayerSpec(
+            layer_id=DEFAULT_OBJECT_BODY_LAYER_ID,
+            order=4,
+            composition_operator=COMPOSITION_OVERWRITE,
+        ),
+        RenderLayerSpec(
+            layer_id=DEFAULT_OBJECT_FOREGROUND_LAYER_ID,
+            order=5,
+            composition_operator=COMPOSITION_OVERWRITE,
+        ),
+    )
 
 
 def build_v1_plain_junction_visual_profile_catalog() -> StaticVisualProfileCatalog:
@@ -272,38 +458,38 @@ def build_v1_plain_junction_visual_profile_catalog() -> StaticVisualProfileCatal
     ports = (
         PortGeometrySpec(
             port_id=PortId("north"),
-            offset_x=2,
-            offset_y=0,
+            offset_x=0,
+            offset_y=-2,
             attach_direction="north",
-            connection_family_keys=(DEFAULT_PLAIN_CONNECTION_FAMILY_KEY,),
+            connection_family_keys=(DEFAULT_EXTERNAL_STRAIGHT_CONNECTION_FAMILY_KEY,),
         ),
         PortGeometrySpec(
             port_id=PortId("south"),
-            offset_x=2,
-            offset_y=4,
+            offset_x=0,
+            offset_y=2,
             attach_direction="south",
-            connection_family_keys=(DEFAULT_PLAIN_CONNECTION_FAMILY_KEY,),
+            connection_family_keys=(DEFAULT_EXTERNAL_STRAIGHT_CONNECTION_FAMILY_KEY,),
         ),
         PortGeometrySpec(
             port_id=PortId("west"),
-            offset_x=0,
-            offset_y=2,
+            offset_x=-2,
+            offset_y=0,
             attach_direction="west",
-            connection_family_keys=(DEFAULT_PLAIN_CONNECTION_FAMILY_KEY,),
+            connection_family_keys=(DEFAULT_EXTERNAL_STRAIGHT_CONNECTION_FAMILY_KEY,),
         ),
         PortGeometrySpec(
             port_id=PortId("east"),
-            offset_x=4,
-            offset_y=2,
+            offset_x=2,
+            offset_y=0,
             attach_direction="east",
-            connection_family_keys=(DEFAULT_PLAIN_CONNECTION_FAMILY_KEY,),
+            connection_family_keys=(DEFAULT_EXTERNAL_STRAIGHT_CONNECTION_FAMILY_KEY,),
         ),
     )
     transitions = tuple(
         InternalTransitionSpec(
             from_port_id=from_port.port_id,
             to_port_id=to_port.port_id,
-            connection_family_key=DEFAULT_PLAIN_CONNECTION_FAMILY_KEY,
+            connection_family_key=DEFAULT_JUNCTION_PIECE_CONNECTION_FAMILY_KEY,
         )
         for from_port in ports
         for to_port in ports
@@ -321,6 +507,238 @@ def build_v1_plain_junction_visual_profile_catalog() -> StaticVisualProfileCatal
         render_style_profiles=(
             RenderStyleProfile(
                 profile_key=DEFAULT_PLAIN_JUNCTION_PROFILE_KEY,
+                local_connection_templates=(
+                    LocalConnectionTemplateSpec(
+                        port_ids=(PortId("north"), PortId("south")),
+                        binding=RenderTemplateBinding(
+                            layer_id=DEFAULT_ROAD_LAYER_ID,
+                            template_key=DEFAULT_EXTERNAL_STRAIGHT_TEMPLATE_KEY,
+                            transform=RenderTransformSpec(quarter_turns_clockwise=1),
+                        ),
+                    ),
+                    LocalConnectionTemplateSpec(
+                        port_ids=(PortId("west"), PortId("east")),
+                        binding=RenderTemplateBinding(
+                            layer_id=DEFAULT_ROAD_LAYER_ID,
+                            template_key=DEFAULT_EXTERNAL_STRAIGHT_TEMPLATE_KEY,
+                        ),
+                    ),
+                    LocalConnectionTemplateSpec(
+                        port_ids=(PortId("north"), PortId("east")),
+                        binding=RenderTemplateBinding(
+                            layer_id=DEFAULT_ROAD_LAYER_ID,
+                            template_key=DEFAULT_JUNCTION_CORNER_TEMPLATE_KEY,
+                        ),
+                    ),
+                    LocalConnectionTemplateSpec(
+                        port_ids=(PortId("south"), PortId("east")),
+                        binding=RenderTemplateBinding(
+                            layer_id=DEFAULT_ROAD_LAYER_ID,
+                            template_key=DEFAULT_JUNCTION_CORNER_TEMPLATE_KEY,
+                            transform=RenderTransformSpec(quarter_turns_clockwise=1),
+                        ),
+                    ),
+                    LocalConnectionTemplateSpec(
+                        port_ids=(PortId("south"), PortId("west")),
+                        binding=RenderTemplateBinding(
+                            layer_id=DEFAULT_ROAD_LAYER_ID,
+                            template_key=DEFAULT_JUNCTION_CORNER_TEMPLATE_KEY,
+                            transform=RenderTransformSpec(quarter_turns_clockwise=2),
+                        ),
+                    ),
+                    LocalConnectionTemplateSpec(
+                        port_ids=(PortId("north"), PortId("west")),
+                        binding=RenderTemplateBinding(
+                            layer_id=DEFAULT_ROAD_LAYER_ID,
+                            template_key=DEFAULT_JUNCTION_CORNER_TEMPLATE_KEY,
+                            transform=RenderTransformSpec(quarter_turns_clockwise=3),
+                        ),
+                    ),
+                ),
             ),
         ),
+        render_layers=build_v1_default_render_layers(),
+        connection_families=(
+            ConnectionFamilyProfile(
+                family_key=DEFAULT_EXTERNAL_STRAIGHT_CONNECTION_FAMILY_KEY,
+                rule_kind="repeat_span",
+                shape_kind="axis_aligned_straight",
+                layer_id=DEFAULT_ROAD_LAYER_ID,
+                template_keys=(DEFAULT_EXTERNAL_STRAIGHT_TEMPLATE_KEY,),
+            ),
+            ConnectionFamilyProfile(
+                family_key=DEFAULT_JUNCTION_PIECE_CONNECTION_FAMILY_KEY,
+                rule_kind="local_connection_piece",
+                shape_kind="local_connection_piece",
+                layer_id=DEFAULT_ROAD_LAYER_ID,
+            ),
+        ),
+    )
+
+
+def build_v1_skill_frame_build_geometry_profile(
+    *,
+    top_port_id: PortId,
+    bottom_port_id: PortId,
+    profile_key: RenderProfileKey = DEFAULT_SKILL_FRAME_PROFILE_KEY,
+) -> BuildGeometryProfile:
+    """Return the centered build-geometry profile for the current skill frame."""
+
+    return BuildGeometryProfile(
+        profile_key=profile_key,
+        footprint=LocalFootprint(width=31, height=31),
+        ports=(
+            PortGeometrySpec(
+                port_id=top_port_id,
+                offset_x=0,
+                offset_y=-15,
+                attach_direction="north",
+                connection_family_keys=(DEFAULT_EXTERNAL_STRAIGHT_CONNECTION_FAMILY_KEY,),
+            ),
+            PortGeometrySpec(
+                port_id=bottom_port_id,
+                offset_x=0,
+                offset_y=14,
+                attach_direction="south",
+                connection_family_keys=(DEFAULT_EXTERNAL_STRAIGHT_CONNECTION_FAMILY_KEY,),
+            ),
+        ),
+    )
+
+
+def build_v1_skill_frame_render_style_profile(
+    profile_key: RenderProfileKey = DEFAULT_SKILL_FRAME_PROFILE_KEY,
+) -> RenderStyleProfile:
+    """Return the v1 skill-frame render style profile."""
+
+    return RenderStyleProfile(
+        profile_key=profile_key,
+        template_bindings=(
+            RenderTemplateBinding(
+                layer_id=DEFAULT_SHADOW_LAYER_ID,
+                template_key=DEFAULT_SKILL_FRAME_SHADOW_TEMPLATE_KEY,
+                offset_y=15,
+            ),
+            RenderTemplateBinding(
+                layer_id=DEFAULT_OBJECT_BODY_LAYER_ID,
+                template_key=DEFAULT_SKILL_FRAME_BODY_TEMPLATE_KEY,
+            ),
+        ),
+    )
+
+
+def build_v1_and_knot_build_geometry_profile(
+    *,
+    top_port_id: PortId,
+    left_port_id: PortId,
+    right_port_id: PortId,
+    bottom_port_id: PortId,
+    profile_key: RenderProfileKey = DEFAULT_AND_KNOT_PROFILE_KEY,
+) -> BuildGeometryProfile:
+    """Return the centered build-geometry profile for the current AND knot."""
+
+    return BuildGeometryProfile(
+        profile_key=profile_key,
+        footprint=LocalFootprint(width=5, height=7),
+        ports=(
+            PortGeometrySpec(
+                port_id=top_port_id,
+                offset_x=0,
+                offset_y=-2,
+                attach_direction="north",
+                connection_family_keys=(DEFAULT_EXTERNAL_STRAIGHT_CONNECTION_FAMILY_KEY,),
+            ),
+            PortGeometrySpec(
+                port_id=left_port_id,
+                offset_x=-1,
+                offset_y=0,
+                attach_direction="west",
+                connection_family_keys=(DEFAULT_EXTERNAL_STRAIGHT_CONNECTION_FAMILY_KEY,),
+            ),
+            PortGeometrySpec(
+                port_id=right_port_id,
+                offset_x=1,
+                offset_y=0,
+                attach_direction="east",
+                connection_family_keys=(DEFAULT_EXTERNAL_STRAIGHT_CONNECTION_FAMILY_KEY,),
+            ),
+            PortGeometrySpec(
+                port_id=bottom_port_id,
+                offset_x=0,
+                offset_y=2,
+                attach_direction="south",
+                connection_family_keys=(DEFAULT_EXTERNAL_STRAIGHT_CONNECTION_FAMILY_KEY,),
+            ),
+        ),
+    )
+
+
+def build_v1_and_knot_render_style_profile(
+    profile_key: RenderProfileKey = DEFAULT_AND_KNOT_PROFILE_KEY,
+) -> RenderStyleProfile:
+    """Return the v1 AND-knot render style profile."""
+
+    return RenderStyleProfile(
+        profile_key=profile_key,
+        template_bindings=(
+            RenderTemplateBinding(
+                layer_id=DEFAULT_OBJECT_BODY_LAYER_ID,
+                template_key=DEFAULT_AND_KNOT_BODY_TEMPLATE_KEY,
+            ),
+        ),
+    )
+
+
+def build_v1_core_render_templates() -> tuple[RenderTemplateSpec, ...]:
+    """Return the current symbolic render-template catalog for core object families.
+
+    This compatibility helper delegates to the external source-art catalog so
+    art-file layout changes do not require edits to this generic profile module.
+    """
+
+    from toolsv2.source_art_catalog import build_v1_source_render_templates
+
+    return build_v1_source_render_templates()
+
+
+def build_v1_core_visual_profile_catalog(
+    *,
+    skill_frame_top_port_id: PortId,
+    skill_frame_bottom_port_id: PortId,
+    and_knot_top_port_id: PortId,
+    and_knot_left_port_id: PortId,
+    and_knot_right_port_id: PortId,
+    and_knot_bottom_port_id: PortId,
+) -> StaticVisualProfileCatalog:
+    """Return the current concrete v1 visual/build catalog for core object families.
+
+    Node-port ids remain caller-supplied because logical node definitions are
+    still the source of truth for port identity. The centered local geometry,
+    shared layer ordering, and current straight-road connection family are
+    frozen here without forcing a schema-side port-id convention.
+    """
+
+    junction_catalog = build_v1_plain_junction_visual_profile_catalog()
+    return StaticVisualProfileCatalog(
+        build_geometry_profiles=(
+            junction_catalog.build_geometry_profiles[0],
+            build_v1_skill_frame_build_geometry_profile(
+                top_port_id=skill_frame_top_port_id,
+                bottom_port_id=skill_frame_bottom_port_id,
+            ),
+            build_v1_and_knot_build_geometry_profile(
+                top_port_id=and_knot_top_port_id,
+                left_port_id=and_knot_left_port_id,
+                right_port_id=and_knot_right_port_id,
+                bottom_port_id=and_knot_bottom_port_id,
+            ),
+        ),
+        render_style_profiles=(
+            junction_catalog.render_style_profiles[0],
+            build_v1_skill_frame_render_style_profile(),
+            build_v1_and_knot_render_style_profile(),
+        ),
+        render_layers=build_v1_default_render_layers(),
+        render_templates=build_v1_core_render_templates(),
+        connection_families=junction_catalog.connection_families,
     )

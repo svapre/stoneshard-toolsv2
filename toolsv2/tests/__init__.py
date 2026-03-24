@@ -1,1 +1,1 @@
-"""Toolsv2 test suite."""
+"""Toolsv2 test package."""

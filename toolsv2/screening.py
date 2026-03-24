@@ -122,7 +122,7 @@ def _prepare_requirements(
     for port_id, required_count in required_by_port_id.items():
         port = port_lookup[port_id]
 
-        if required_count > port.capacity:
+        if port.capacity is not None and required_count > port.capacity:
             return (), True
 
         if required_count not in {0, 1}:
@@ -209,15 +209,12 @@ def candidate_required_site_is_usable(
     routing_policy: RoutingPolicy,
     candidate_junction: Junction,
     port: PortDefinition,
-    occupied_junctions: frozenset[Junction],
 ) -> bool:
     """Return whether a required local attachment site is provably usable.
 
     Current removals stay within the frozen local contradiction subset only:
 
     - the required adjacent site exists on the active grid
-    - the required adjacent site is not already occupied by a singleton node
-
     The routing policy is consulted only to validate that the narrow supported
     movement-policy schema exists for the port orientation. Stronger
     policy-derived reachability or path-feasibility screening is still open.
@@ -231,8 +228,6 @@ def candidate_required_site_is_usable(
         port.orientation,
     )
     if adjacent_site is None:
-        return False
-    if adjacent_site in occupied_junctions:
         return False
     return True
 
@@ -276,7 +271,6 @@ def candidate_survives_screening(
             routing_policy,
             candidate_junction,
             prepared_requirement.port,
-            occupied_junctions,
         ):
             return False
 

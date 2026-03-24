@@ -1,13 +1,14 @@
 """Frozen logical profile and grid construction rules.
 
-This module implements only the frozen profile behavior from
+This module implements only the frozen generic grid-construction behavior from
 ``solver_rules.md``:
 
 - default logical x rails are an ordered family
 - the base y grid starts with authored tier rails only
 - extra y rails are added through explicit profile-band input
-- the first extra rail in a band is the midpoint
-- multiple dynamic rails in a band are rebalanced to equal spacing
+- exact in-band dynamic-rail layouts may be supplied explicitly
+- equal-spacing rebalancing is available as a generic utility for profiles that
+  choose that rule
 - authored rails do not move
 
 This module must not assume:
@@ -17,12 +18,11 @@ This module must not assume:
 - any logical-to-pixel mapping details
 - any placement, screening, routing, or refinement behavior
 
-Current temporary open-item workaround:
+Current temporary/open profile-policy boundary:
 
-- The caller supplies dynamic-rail ordering for one band explicitly.
-- That caller-supplied ordering is not a finalized solver design.
-- It exists only so the frozen midpoint/equal-spacing rule can be applied
-  without inventing an unfrozen ordering policy.
+- The caller supplies band-local dynamic-rail identities explicitly.
+- If a profile wants exact in-band positions, the caller supplies those too.
+- This module does not infer profile-specific band-layout heuristics.
 """
 
 from __future__ import annotations
@@ -141,18 +141,13 @@ def build_minimum_active_grid(
     )
 
 
-def rebalance_band_dynamic_y_rails(
+def apply_band_dynamic_y_rail_layout(
     active_grid: ActiveGridState,
     band_id: str | BandId,
     ordered_dynamic_rail_ids: Sequence[str | LogicalYRailId],
+    ordered_relative_positions: Sequence[Fraction],
 ) -> ActiveGridState:
-    """Apply the frozen generic extra-y-rail rule to one band.
-
-    The caller must supply the full ordered dynamic rail id list for the target
-    band as a temporary open-item workaround. This is not a finalized solver
-    design. This function does not infer band-selection policy or dynamic rail
-    ordering policy because those details are not frozen.
-    """
+    """Apply one explicit profile-owned dynamic-y-rail layout to one band."""
 
     target_band_id = BandId(str(band_id))
     band_lookup = {band.band_id: band for band in active_grid.y_bands}
@@ -164,6 +159,20 @@ def rebalance_band_dynamic_y_rails(
         _coerce_y_rail_id(rail_id)
         for rail_id in ordered_dynamic_rail_ids
     )
+    ordered_positions = tuple(ordered_relative_positions)
+
+    if len(ordered_dynamic_ids) != len(ordered_positions):
+        raise ValueError("ordered_dynamic_rail_ids and ordered_relative_positions must match in length")
+    if not ordered_dynamic_ids:
+        raise ValueError("ordered_dynamic_rail_ids must not be empty")
+
+    previous_position = Fraction(0, 1)
+    for position in ordered_positions:
+        if position <= 0 or position >= 1:
+            raise ValueError("Band rail positions must lie strictly inside the band")
+        if position <= previous_position:
+            raise ValueError("Band rail positions must be strictly increasing")
+        previous_position = position
 
     upper_authored = next(
         rail for rail in active_grid.y_rails if rail.rail_id == target_band.upper_authored_rail_id
@@ -179,11 +188,11 @@ def rebalance_band_dynamic_y_rails(
     new_dynamic_rails = tuple(
         LogicalYRail(
             rail_id=rail_id,
-            logical_rank=upper_authored.logical_rank + (span * Fraction(index, len(ordered_dynamic_ids) + 1)),
+            logical_rank=upper_authored.logical_rank + (span * position),
             kind="dynamic",
             band_id=target_band_id,
         )
-        for index, rail_id in enumerate(ordered_dynamic_ids, start=1)
+        for rail_id, position in zip(ordered_dynamic_ids, ordered_positions)
     )
 
     existing_target_dynamic_ids = set(target_band.dynamic_rail_ids)
@@ -208,6 +217,33 @@ def rebalance_band_dynamic_y_rails(
         x_rails=active_grid.x_rails,
         y_rails=new_y_rails,
         y_bands=new_y_bands,
+    )
+
+
+def rebalance_band_dynamic_y_rails(
+    active_grid: ActiveGridState,
+    band_id: str | BandId,
+    ordered_dynamic_rail_ids: Sequence[str | LogicalYRailId],
+) -> ActiveGridState:
+    """Apply one generic equal-spacing dynamic-y-rail layout to one band.
+
+    This is a utility for profiles that use the midpoint/equal-spacing rule.
+    Profile-specific rail patterns should use ``apply_band_dynamic_y_rail_layout``.
+    """
+
+    ordered_dynamic_ids = tuple(
+        _coerce_y_rail_id(rail_id)
+        for rail_id in ordered_dynamic_rail_ids
+    )
+    positions = tuple(
+        Fraction(index, len(ordered_dynamic_ids) + 1)
+        for index in range(1, len(ordered_dynamic_ids) + 1)
+    )
+    return apply_band_dynamic_y_rail_layout(
+        active_grid=active_grid,
+        band_id=band_id,
+        ordered_dynamic_rail_ids=ordered_dynamic_ids,
+        ordered_relative_positions=positions,
     )
 
 

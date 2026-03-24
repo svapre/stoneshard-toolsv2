@@ -117,7 +117,7 @@ class PlacementSolverTests(unittest.TestCase):
             result.seeds[0].assignments[NodeId("a")],
         )
 
-    def test_backtracking_over_two_candidate_choices(self) -> None:
+    def test_first_branch_candidate_can_succeed_when_adjacent_occupied_site_is_not_a_proof(self) -> None:
         grid = _grid("x0", "x1", "x2")
         a_left = Junction(grid.x_rails[1].rail_id, grid.y_rails[0].rail_id)
         a_right = Junction(grid.x_rails[2].rail_id, grid.y_rails[0].rail_id)
@@ -144,17 +144,14 @@ class PlacementSolverTests(unittest.TestCase):
         self.assertEqual("success", result.status)
         self.assertEqual(1, len(result.seeds))
         self.assertEqual(
-            (
-                Junction(grid.x_rails[1].rail_id, grid.y_rails[0].rail_id),
-                Junction(grid.x_rails[2].rail_id, grid.y_rails[0].rail_id),
-            ),
+            (Junction(grid.x_rails[1].rail_id, grid.y_rails[0].rail_id),),
             tuple(attempt.candidate_junction for attempt in result.branch_attempts),
         )
         self.assertEqual(NodeId("a"), result.branch_attempts[0].node_id)
-        self.assertEqual(a_right, result.seeds[0].assignments[NodeId("a")])
+        self.assertEqual(a_left, result.seeds[0].assignments[NodeId("a")])
         self.assertEqual(b_fixed, result.seeds[0].assignments[NodeId("b")])
 
-    def test_contradiction_detection_when_branch_empties_a_domain(self) -> None:
+    def test_adjacent_occupied_sites_do_not_force_current_grid_contradiction(self) -> None:
         grid = _grid("x0", "x1", "x2", "x3")
         a_left = Junction(grid.x_rails[1].rail_id, grid.y_rails[0].rail_id)
         a_right = Junction(grid.x_rails[2].rail_id, grid.y_rails[0].rail_id)
@@ -182,12 +179,12 @@ class PlacementSolverTests(unittest.TestCase):
                 },
             )
 
-        self.assertEqual("failure_on_current_grid", result.status)
-        self.assertEqual((), result.seeds)
-        self.assertTrue(result.contradiction_observed)
-        self.assertIsNotNone(result.failure_domains)
+        self.assertEqual("success", result.status)
+        self.assertEqual(1, len(result.seeds))
         self.assertEqual(NodeId("a"), result.branch_attempts[0].node_id)
-        self.assertEqual(2, len(result.branch_attempts))
+        self.assertEqual(a_left, result.seeds[0].assignments[NodeId("a")])
+        self.assertEqual(b_fixed, result.seeds[0].assignments[NodeId("b")])
+        self.assertEqual(c_fixed, result.seeds[0].assignments[NodeId("c")])
 
     def test_smallest_domain_first_branching(self) -> None:
         grid = _grid("x0", "x1", "x2", "x3", "x4", "x5")
