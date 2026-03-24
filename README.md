@@ -51,6 +51,12 @@ python -m toolsv2.run_branch toolsv2/examples/test_branch.json
 
 By default this writes the base render to `toolsv2/output/<tree_id>.png`.
 
+The larger bundled smoke example also works:
+
+```bash
+python -m toolsv2.run_branch toolsv2/examples/test_skill_tree.json
+```
+
 ## CI
 
 GitHub Actions runs the same unittest suite on every push and pull request.

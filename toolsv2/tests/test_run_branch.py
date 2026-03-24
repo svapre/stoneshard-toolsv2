@@ -110,6 +110,17 @@ class RunBranchTests(unittest.TestCase):
         )
         self.assertIsNone(policy(next_grid))
 
+    def test_runner_solves_bundled_test_skill_tree(self) -> None:
+        tree_path = Path(__file__).resolve().parents[1] / "examples" / "test_skill_tree.json"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            out_path = Path(temp_dir) / "test_skill_tree.png"
+            result = run_v1_requirement_tree_json(tree_path, out_path=out_path)
+
+            self.assertEqual("success", result.solve_result.status)
+            self.assertTrue(result.output_path.exists())
+            self.assertGreater(result.output_path.stat().st_size, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

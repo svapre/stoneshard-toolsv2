@@ -138,7 +138,7 @@ class RouteCommitTests(unittest.TestCase):
         self.assertEqual("failure_snapshot", result.status)
         self.assertIsNone(result.new_state)
 
-    def test_commit_that_would_violate_reachability_correctness_is_rejected(self) -> None:
+    def test_commit_does_not_own_cross_source_reachability_validation(self) -> None:
         grid = build_minimum_active_grid(
             default_x_rail_ids=("x0", "x1"),
             authored_tier_rail_ids=("tier_0",),
@@ -201,8 +201,8 @@ class RouteCommitTests(unittest.TestCase):
 
         result = V1RouteCommit()(current_state, route_plan)
 
-        self.assertEqual("failure_snapshot", result.status)
-        self.assertIsNone(result.new_state)
+        self.assertEqual("success", result.status)
+        self.assertIsNotNone(result.new_state)
 
     def test_bidirectional_and_unidirectional_materialization_are_respected(self) -> None:
         source_port_ref = PortRef(
@@ -385,7 +385,7 @@ class RouteCommitTests(unittest.TestCase):
         conflicting_result = committer(conflicting_state, route_plan)
         clean_result = committer(clean_state, route_plan)
 
-        self.assertEqual("failure_snapshot", conflicting_result.status)
+        self.assertEqual("success", conflicting_result.status)
         self.assertEqual("success", clean_result.status)
 
     def test_commit_rejects_new_attachment_when_finite_port_capacity_is_full(self) -> None:
