@@ -14,6 +14,7 @@ from toolsv2.grid_expansion_policy import build_v1_explicit_band_expansion_polic
 from toolsv2.layout_estimation import (
     LayoutDemandEstimate,
     V1RuleBasedLayoutDemandEstimator,
+    build_single_sink_mediated_band_rule,
     build_same_band_multi_sink_split_pattern_rule,
 )
 from toolsv2.layout_profiles import (
@@ -22,6 +23,7 @@ from toolsv2.layout_profiles import (
     LayoutProfile,
     build_band_expansion_step_for_layout_pattern,
     build_v1_vanilla_skill_tree_layout_profile,
+    get_band_layout_pattern,
 )
 from toolsv2.render_export import render_v1_successful_solve_result, save_base_render_result
 from toolsv2.render_layout_profiles import (
@@ -70,24 +72,27 @@ def _build_default_grid_expansion_policy_builder(
 ):
     def _builder(estimate: LayoutDemandEstimate):
         steps = []
-        for band in estimate.initial_grid.y_bands:
-            if len(band.dynamic_rail_ids) == 0:
-                steps.append(
-                    build_band_expansion_step_for_layout_pattern(
-                        layout_profile,
-                        band_id=band.band_id,
-                        pattern_id=V1_VANILLA_SINGLE_MID_BAND_LAYOUT_ID,
-                        ordered_dynamic_rail_ids=_default_dynamic_rail_ids(
-                            band.upper_authored_rail_id,
-                            band.lower_authored_rail_id,
-                            count=1,
-                        ),
-                    )
-                )
-
         try:
+            split_pattern = get_band_layout_pattern(
+                layout_profile,
+                V1_VANILLA_FOUR_TIER_SPLIT_PAIR_BAND_LAYOUT_ID,
+            )
+            demands_by_band = {
+                (
+                    demand.upper_authored_tier_rail_id,
+                    demand.lower_authored_tier_rail_id,
+                ): demand
+                for demand in estimate.band_layout_demands
+            }
             for band in estimate.initial_grid.y_bands:
-                if len(band.dynamic_rail_ids) >= 2:
+                demand = demands_by_band.get(
+                    (band.upper_authored_rail_id, band.lower_authored_rail_id)
+                )
+                if demand is None:
+                    continue
+                if demand.pattern_id != V1_VANILLA_SINGLE_MID_BAND_LAYOUT_ID:
+                    continue
+                if len(band.dynamic_rail_ids) >= len(split_pattern.relative_positions):
                     continue
                 steps.append(
                     build_band_expansion_step_for_layout_pattern(
@@ -97,7 +102,7 @@ def _build_default_grid_expansion_policy_builder(
                         ordered_dynamic_rail_ids=_default_dynamic_rail_ids(
                             band.upper_authored_rail_id,
                             band.lower_authored_rail_id,
-                            count=2,
+                            count=len(split_pattern.relative_positions),
                             existing_ids=band.dynamic_rail_ids,
                         ),
                     )
@@ -154,6 +159,9 @@ def run_v1_requirement_tree(
         layout_profile=layout_profile,
         authored_tier_rail_ids=authored_tier_rail_ids_for_tree(requirement_spec),
         band_layout_demand_rules=(
+            build_single_sink_mediated_band_rule(
+                pattern_id=V1_VANILLA_SINGLE_MID_BAND_LAYOUT_ID,
+            ),
             build_same_band_multi_sink_split_pattern_rule(
                 split_pattern_id=V1_VANILLA_FOUR_TIER_SPLIT_PAIR_BAND_LAYOUT_ID,
             ),

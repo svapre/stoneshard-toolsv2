@@ -46,7 +46,7 @@ python -m unittest discover -s toolsv2/tests -v
 ## Run Example
 
 ```bash
-python -m toolsv2.run_branch toolsv2/examples/test_skill_tree.json
+python -m toolsv2.run_branch toolsv2/examples/test_branch.json
 ```
 
 By default this writes the base render to `toolsv2/output/<tree_id>.png`.

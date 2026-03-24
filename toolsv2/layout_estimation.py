@@ -291,3 +291,84 @@ def build_same_band_multi_sink_split_pattern_rule(
         )
 
     return _rule
+
+
+def build_single_sink_mediated_band_rule(
+    *,
+    source_node_kind: str = V1_AND_KNOT_KIND,
+    pattern_id: str,
+) -> BandLayoutDemandRule:
+    """Build one reusable lower-bound rule for one mediated-band dynamic node."""
+
+    def _rule(
+        content: GraphContentModel,
+        layout_profile: LayoutProfile,
+        authored_tier_rail_ids: tuple[LogicalYRailId, ...],
+    ) -> tuple[BandLayoutDemand, ...]:
+        order_lookup = {
+            rail_id: index
+            for index, rail_id in enumerate(authored_tier_rail_ids)
+        }
+        node_lookup = {
+            node.node_id: node
+            for node in content.nodes
+        }
+        outgoing_by_source: dict[NodeId, list] = {}
+        incoming_by_sink: dict[NodeId, list] = {}
+        for requirement in content.route_requirements:
+            outgoing_by_source.setdefault(requirement.source_node_id, []).append(requirement)
+            incoming_by_sink.setdefault(requirement.sink_node_id, []).append(requirement)
+
+        pattern = get_band_layout_pattern(
+            layout_profile,
+            pattern_id,
+        )
+        demands: dict[tuple[LogicalYRailId, LogicalYRailId], BandLayoutDemand] = {}
+
+        for node in content.nodes:
+            if node.kind != source_node_kind:
+                continue
+
+            outgoing_requirements = outgoing_by_source.get(node.node_id, [])
+            outgoing_sink_tiers = [
+                sink_node.authored_tier_y_rail_id
+                for requirement in outgoing_requirements
+                for sink_node in (node_lookup[requirement.sink_node_id],)
+                if sink_node.authored_tier_y_rail_id is not None
+            ]
+            if len(outgoing_sink_tiers) != 1:
+                continue
+            lower_tier = outgoing_sink_tiers[0]
+
+            incoming_tiers = {
+                node_lookup[requirement.source_node_id].authored_tier_y_rail_id
+                for requirement in incoming_by_sink.get(node.node_id, [])
+                if node_lookup[requirement.source_node_id].authored_tier_y_rail_id is not None
+            }
+            if len(incoming_tiers) != 1:
+                continue
+            upper_tier = next(iter(incoming_tiers))
+
+            if upper_tier not in order_lookup or lower_tier not in order_lookup:
+                continue
+            if order_lookup[lower_tier] != order_lookup[upper_tier] + 1:
+                continue
+
+            key = (upper_tier, lower_tier)
+            demands[key] = BandLayoutDemand(
+                upper_authored_tier_rail_id=upper_tier,
+                lower_authored_tier_rail_id=lower_tier,
+                pattern_id=pattern_id,
+                ordered_dynamic_rail_ids=_build_band_dynamic_rail_ids(
+                    upper_tier,
+                    lower_tier,
+                    len(pattern.relative_positions),
+                ),
+            )
+
+        return tuple(
+            demands[key]
+            for key in sorted(demands, key=lambda item: (str(item[0]), str(item[1])))
+        )
+
+    return _rule

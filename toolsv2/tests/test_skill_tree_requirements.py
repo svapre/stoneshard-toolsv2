@@ -138,6 +138,10 @@ class SkillTreeRequirementsTests(unittest.TestCase):
             if node.kind == V1_AND_KNOT_KIND
         ]
         self.assertEqual(1, len(and_nodes))
+        self.assertEqual(
+            ("dyn::tier_0::tier_1::0", "dyn::tier_0::tier_1::1"),
+            tuple(str(rail_id) for rail_id in and_nodes[0].allowed_y_rail_ids or ()),
+        )
         self.assertEqual(4, len(compiled.graph_content.route_requirements))
         self.assertEqual(2, len(compiled.graph_content.screening_port_requirements))
 
