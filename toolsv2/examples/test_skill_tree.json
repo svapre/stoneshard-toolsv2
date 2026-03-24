@@ -1,0 +1,101 @@
+{
+  "tree_id": "test_skill_tree",
+  "background_base": "BASE_BACKGROUND.png",
+  "skills": [
+    {
+      "id": "a1",
+      "name": "A1",
+      "tier": 1,
+      "slot": 0,
+      "requires": []
+    },
+    {
+      "id": "b1",
+      "name": "B1",
+      "tier": 1,
+      "slot": 1,
+      "requires": []
+    },
+    {
+      "id": "c1",
+      "name": "C1",
+      "tier": 1,
+      "slot": 2,
+      "requires": []
+    },
+    {
+      "id": "d1",
+      "name": "D1",
+      "tier": 1,
+      "slot": 3,
+      "requires": []
+    },
+    {
+      "id": "a2",
+      "name": "A2",
+      "tier": 2,
+      "slot": 0,
+      "requires": [
+        ["a1", "b1", "c1"],
+        ["d1"]
+      ]
+    },
+    {
+      "id": "b2",
+      "name": "B2",
+      "tier": 2,
+      "slot": 1,
+      "requires": [
+        ["a1", "b1", "c1"],
+        ["d1"]
+      ]
+    },
+    {
+      "id": "c2",
+      "name": "C2",
+      "tier": 2,
+      "slot": 2,
+      "requires": [
+        ["c1"],
+        ["d1"]
+      ]
+    },
+    {
+      "id": "d2",
+      "name": "D2",
+      "tier": 2,
+      "slot": 3,
+      "requires": [
+        ["d1"]
+      ]
+    },
+    {
+      "id": "a3",
+      "name": "A3",
+      "tier": 3,
+      "slot": 0,
+      "requires": []
+    },
+    {
+      "id": "b3",
+      "name": "B3",
+      "tier": 3,
+      "slot": 1,
+      "requires": []
+    },
+    {
+      "id": "c3",
+      "name": "C3",
+      "tier": 3,
+      "slot": 2,
+      "requires": []
+    },
+    {
+      "id": "d3",
+      "name": "D3",
+      "tier": 3,
+      "slot": 3,
+      "requires": []
+    }
+  ]
+}

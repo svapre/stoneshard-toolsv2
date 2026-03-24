@@ -22,6 +22,10 @@
 - **refinement**: the post-solve second pass that may move already placed nodes or substructures and reroute affected parts while preserving legality.
 - **routing policy**: a configurable ruleset, separate from solver core logic, that constrains legal route movement and route behavior.
 - **active grid**: the currently instantiated set of logical x rails and logical y rails available to placement, screening, and exact routing.
+- **visual/build profile**: data-only visual/build information kept separate from logical object/schema data.
+- **graph content**: explicit production input data for node instances, route requirements, screening-time attachment requirements, and same-row ordering groups.
+- **render resolver**: the layer that converts committed runtime truth into render-ready object specs with dynamic visual facts already resolved.
+- **render instruction**: a generic renderer-facing primitive or stamp instruction, not a logical graph object.
 
 ## 3. Frozen Rules
 
@@ -33,22 +37,53 @@
 ### 3.1 Grid / profile
 
 - Default logical x rails exist as an ordered family.
+- Reusable layout presets may define a default x-rail family plus minimum same-row spacing without turning those values into solver-core constants.
+- Reusable layout-demand estimators may derive only provable lower-bound initial grid requirements from graph content plus layout/profile data.
 - The base y-grid starts with authored/static tier rails only.
 - Extra y rails are added only through profile rules.
 - A grid is a grid regardless of why a rail was added.
-- Generic profile rule:
-  - The first extra rail in a band goes to the midpoint.
-  - If more rails are later added in the same band, dynamic rails in that band are rebalanced to equal spacing.
-  - Static/authored rails do not move.
+- Band-local dynamic-rail activation/configuration is profile data, not solver-core policy.
+- A profile may expose:
+  - a midpoint layout for one dynamic rail in a band
+  - a split-pair layout for two dynamic rails in a band
+  - other explicit in-band layouts later without changing solver-core logic
+- If a profile activates a split-pair layout in a band, the midpoint rail for that band may be inactive.
+- Static/authored rails do not move.
+- A generic midpoint/equal-spacing helper may exist for profiles that choose that rule, but that helper is not itself the frozen global solver policy.
 - The solver uses logical rails, not pixel coordinates.
+- The current explicit vanilla layout preset preserves:
+  - 7 default x rails
+  - minimum same-row x-gap = 1
+- The current vanilla layout profile also carries:
+  - a midpoint band-layout pattern
+  - a 4-tier split-pair band-layout pattern
+- The initial active grid for one solve may be stronger than the bare authored-tier minimum if a reusable estimator can prove profile-owned lower-bound band requirements from the content.
+- Such lower-bound estimation is separate from both placement/routing and the multi-grid retry loop.
 
 ### 3.2 Node / junction model
 
 - Every node occupies one junction.
+- Junctions are grid-intersection location markers and anchor logical objects to the visual grid.
+- Current production node kinds are `skill_frame` and `and_knot`.
+- Current production node-family registration is external catalog data, not generic-loader branching.
 - A node's ports are defined by its node definition.
-- Ports connect only to the adjacent junction in their orientation.
+- Ports always belong to their owner object.
+- Node ports attach only across one shared boundary in their facing direction.
+- Current production node-family port ids are:
+  - skill frame: `top`, `bottom`
+  - AND knot: `top`, `left`, `right`, `bottom`
+- When a junction is unoccupied, junction-local rules are active at that site.
+- When a node occupies a junction, the junction remains the location marker but the junction-local rules are deactivated and the node's local rules become the active rules at that site.
+- Nodes do not act as same-object route-through substrates in current v1 unless a future profile explicitly freezes local internal transitions for such an object family.
 - Port capacities are defined by the node definition.
-- If a port reaches capacity, it is unavailable for further attachment.
+- Port capacity means the maximum number of direct built attachments that port may own at one time.
+- Port capacity defaults to unbounded unless an explicit finite cap is declared.
+- If a port reaches capacity, it remains an active existing endpoint but is unavailable for further direct attachment.
+- Current production node-family capacities are:
+  - skill frame: `top` unbounded, `bottom` unbounded
+  - AND knot: `top` = `1`, `left` = `1`, `right` = `1`, `bottom` unbounded
+- Current production graph content must declare source/sink port allowances explicitly for each route requirement rather than inferring them from node family.
+- Current schema-view allowance lookup may be requirement-specific; it must not collapse distinct required gate-input ports into one generic per-kind allowance.
 - Only nodes may change junction behavior during screening.
 - Non-node junction connection state is ignored during screening.
 
@@ -103,6 +138,8 @@ Clarifications:
 - `Dom_x` and `Dom_y` may be used internally as construction helpers only.
 - Tier/authored nodes have fixed `Dom_y`.
 - Dynamic nodes use currently active logical y rails that are allowed for them.
+- Current ordered same-row raw-domain construction uses row order plus the explicitly supplied minimum same-row spacing hard constraint on the current active x rails.
+- If those hard constraints leave no legal current-grid ordered-row assignment, the resulting domains are empty and the current grid is contradictory for that placement attempt.
 - Domains are reduced by proof only.
 
 ### 3.7 Propagation
@@ -121,6 +158,7 @@ Clarifications:
 
 - A candidate stays valid unless a hard contradiction proves it impossible.
 - No candidate may be removed by intuition or by a "probably bad" judgment.
+- Current same-row propagation uses the same frozen row-order plus explicitly supplied minimum same-row spacing hard constraint on the current active x rails.
 
 ### 3.8 Screening
 
@@ -131,6 +169,7 @@ Clarifications:
   - node occupancy and capabilities
   - candidate port-adjacent sites
 - Screening ignores non-node junction connection state.
+- Occupancy of an adjacent site alone is not a proof of impossibility, because that adjacent site may be an occupied node whose owner-defined port is the intended attachment.
 - Reachability screening is span-based or empty-space-based in principle, not exact routing.
 - A candidate is removed in screening only if impossibility is provable.
 
@@ -179,6 +218,82 @@ Clarifications:
   - explicit contact-force propagation
 - Refinement is not part of the legality solver.
 
+### 3.12 Visual / render architecture
+
+- Logical object data and visual/build data are separate concerns.
+- The renderer is separate from routing, commit, and orchestration.
+- Ports are local interface/state only and are not directly renderable by default.
+- Empty junctions may exist in runtime state without being rendered.
+- The renderer must be a rule follower, not a policy maker.
+- Visual/build feasibility may use visual/build profile data as its source of truth for build-geometric constraints without leaking visual semantics into logical solver core.
+- Rendering consumes committed runtime truth only, not tentative route plans.
+- Rendering must not infer legality or buildability.
+- Concrete pixel mapping, canvas size, and default background ownership are render-layout profile data, not renderer-core guesses.
+- Local visual/build coordinates are centered on the object anchor by default:
+  - `+x` points right
+  - `+y` points down
+- Rendering uses this layer order boundary:
+  - background: order 0
+  - shadow: order 1
+  - road: order 3
+  - object body: order 4
+  - object foreground: order 5
+- Layer composition is data-driven. Default overwrite behavior is allowed unless a layer/profile defines another operator.
+- `max_light` is one supported composition operator and remains important for the road/junction layer.
+- Exact composition behavior is provided through an external callable registry; renderer core dispatches to declared rules instead of inferring behavior from asset contents.
+- Object-specific pre-render finalization may also be provided through an external callable registry rather than hardcoded in renderer core.
+- Derived visual variants such as rotations, mirrors, and local placement offsets are profile data, not renderer guesses.
+- Current concrete v1 object-family geometry is:
+  - skill frame: `31x31`, top port at `(0, -15)`, bottom port at `(0, 14)`, separate shadow layer
+  - AND knot: `5x7`, top `(0, -2)`, left `(-1, 0)`, right `(1, 0)`, bottom `(0, 2)`
+  - plain junction: `5x5`, north `(0, -2)`, south `(0, 2)`, west `(-2, 0)`, east `(2, 0)`
+- Logical port identity remains schema-owned. Concrete node-family visual profiles may be parameterized by caller-supplied port ids rather than hardcoding a solver-core port-id convention.
+- V1 junction rendering uses composition of individual connection pieces only.
+- Current v1 source art is grouped by object/family rather than by global asset type.
+- Source-art file layout is external catalog data; moving art files must not require edits to generic renderer/profile modules.
+- Current production visual-family registration is external catalog data; adding a new production family must not require edits to generic loader or generic profile modules.
+- Future T/cross-specific junction overrides must be addable through junction profile data rather than renderer rewrites.
+- External edge families are not hardcoded in the renderer.
+- V1 external span rendering supports straight repeated primitives only, using the current straight external connection family.
+- The current straight external connection family is axis-aligned only and uses repeated `3x1` / `1x3` primitives.
+- In the current implemented v1 primitive expander, an axis-aligned straight connection family may use:
+  - one canonical primitive plus a profile-owned transform
+  - or explicit oriented templates
+- Future diagonal or curved connection families must remain possible without changing logical solver core.
+- Boundary-facing junction ports may remain instantiated at edge-of-grid sites even when no outward neighbor exists; outward routing is limited by active-grid adjacency rather than by deleting those ports.
+- The render pipeline boundary is:
+  1. committed runtime truth
+  2. render resolver
+  3. primitive expansion
+  4. base renderer / compositor
+- The renderer/compositor consumes generic render instructions only.
+- The render resolver may resolve per-object dynamic render information first, then feed that through primitive expansion before final rendering.
+- The current implemented v1 render resolver:
+  - emits active node render specs
+  - emits unoccupied-junction render specs only when built local junction connections exist
+  - omits separate junction specs for occupied sites
+  - emits separate external-edge render specs with straight resolved spans only
+  - fails loudly rather than guessing on non-axis-aligned external spans
+- The current implemented v1 primitive expander:
+  - expands object style bindings into generic sprite/pixel-mask stamps
+  - expands straight external spans into repeated-span instructions
+  - expands local junction/object connection pieces from profile-owned undirected port-pair bindings
+  - applies profile-owned local offsets and transforms rather than guessing them in renderer code
+- The current implemented v1 base renderer:
+  - uses an explicit render-layout preset for canvas size, background, and rail pixel mapping
+  - loads templates through a cached template loader
+  - dispatches composition only through the external behavior registry
+  - supports the current base output from sprite stamps and repeated straight spans
+- The current implemented export/testing helper may:
+  - render one committed runtime snapshot to the base image
+  - render one successful current-grid solve result to the base image
+  - save that base image for smoke testing and manual review
+- The current implemented file runner may:
+  - load the current requirement-spec JSON shape
+  - compile it into explicit graph content
+  - run the current default estimated full solve loop
+  - save the base PNG with default output-path behavior
+
 ## 4. Frozen Solve Pipeline
 
 1. Load profile and graph/object definitions.
@@ -189,6 +304,24 @@ Clarifications:
 6. If routing succeeds for a provisional placement seed, produce a legal graph candidate.
 7. Run refinement on legal graph candidates.
 8. Deduplicate refined graphs and keep up to `K` distinct final outputs.
+
+Current implemented v1 shell boundary:
+
+- The current implemented solve shell consumes explicit graph content plus one fixed active grid.
+- It loads current production definitions/content, runs placement on that fixed grid, and then runs routing/commit orchestration across the returned placement seeds on that same fixed grid.
+- It may report:
+  - placement failure on the current grid
+  - routing failure on the current grid after exhausting the returned placement seeds
+  - success on the current grid
+- The current implemented full multi-grid orchestrator may then:
+  - build the minimum active grid from explicit x-rail ids and authored tier rails
+  - run the current-grid shell
+  - expand by the next explicit profile-rule policy step after either placement-scoped or routing-scoped current-grid failure
+  - retry on the expanded grid
+  - stop on first success or explicit grid-set exhaustion
+- Failure over the tried grid set does not mean global impossibility.
+- The current implemented orchestration still does not implement refinement or rendering.
+- The current implemented short file runner sits above that stack and uses the current requirement-spec compiler plus base renderer, but it is still limited by whatever graphs the current logical solver can actually solve.
 
 ## 5. What Screening May Remove
 
@@ -213,7 +346,9 @@ Guessed geometric heuristics are not allowed screening contradictions.
 - Routing policy shortcuts may replace the routing policy itself.
 - Port offsets affect path length.
 - `OR` requires a separate structural node.
-- Exact routing may be used during domain construction, propagation, or screening.
+- Exact routing may not be used during domain construction, propagation, or screening.
+- Renderer policy may decide legality or buildability.
+- Renderer must infer object placement, span shape, or local connection patterns from raw graph semantics.
 
 ## 7. Open / Not Frozen
 
@@ -227,4 +362,6 @@ Guessed geometric heuristics are not allowed screening contradictions.
 - Exact profile-band enumeration and selection details beyond the midpoint and rebalance rule.
 - Exact `Dom_x` construction details beyond hard constraints defined elsewhere.
 - Tie-break rules among legal solutions that are equal under the frozen objective order.
+- Exact concrete visual/build profiles for any object families beyond the currently frozen v1 skill frame, AND knot, plain junction, and straight external-road family.
+- Exact renderer/compositor implementation details.
 - Any behavior not frozen in this file.

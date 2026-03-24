@@ -1,3 +1,3 @@
-"""Current locked Toolsv2 solver/runtime package."""
+"""Current Toolsv2 package."""
 
 __all__: list[str] = []

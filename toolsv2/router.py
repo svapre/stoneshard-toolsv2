@@ -200,9 +200,6 @@ def _build_local_candidate_steps(
 ) -> tuple[TentativeRouteStep, ...]:
     current_port_ref = current_entry_context.current_port_ref
     current_object_ref = current_port_ref.owner_ref
-    if not isinstance(current_object_ref, Junction):
-        return ()
-
     frontier_context = FrontierContext(
         current_object_ref=current_object_ref,
         current_port_ref=current_port_ref,

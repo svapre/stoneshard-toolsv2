@@ -1,4 +1,4 @@
-"""Fixed-point propagation for the frozen structural subset only.
+"""Fixed-point propagation for the current frozen structural subset only.
 
 This module operates on already-built ``NodeDomain`` junction sets. It
 implements only the safe propagation subset that can be expressed without
@@ -20,16 +20,13 @@ This module does not implement:
 - lock rules
 - symmetry-based pruning
 
-Important limitation:
-
-- Row propagation is limited to the same small 3-node and 4-node ordered-row
-  cases already supported by ``domain_builder.py``.
+Current same-row propagation uses row order plus the active layout-profile
+minimum same-row spacing hard constraint on the current active x rails.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from itertools import combinations
 from typing import Sequence
 
 from toolsv2.domain_builder import (
@@ -37,13 +34,9 @@ from toolsv2.domain_builder import (
     OrderedSameRowGroup,
     build_authored_tier_dom_y,
     build_dynamic_dom_y,
+    enumerate_minimum_gap_ordered_row_assignments,
 )
 from toolsv2.solver_types import ActiveGridState, Junction, LogicalXRailId, NodeDomain, NodeId
-
-
-_SAFE_ORDERED_ROW_RAIL_COUNT = 7
-_SAFE_ORDERED_ROW_NODE_COUNTS = frozenset({3, 4})
-_SAFE_ONE_GAP = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -169,27 +162,13 @@ def _apply_occupancy_propagation(
     return updated
 
 
-def _one_gap_assignments(
-    rail_count: int,
-    node_count: int,
-) -> tuple[tuple[int, ...], ...]:
-    return tuple(
-        assignment
-        for assignment in combinations(range(rail_count), node_count)
-        if all(
-            assignment[index + 1] - assignment[index] >= (_SAFE_ONE_GAP + 1)
-            for index in range(node_count - 1)
-        )
-    )
-
-
 def _apply_ordered_row_propagation(
     active_grid: ActiveGridState,
     domains: dict[NodeId, NodeDomain],
     ordered_same_row_groups: Sequence[OrderedSameRowGroup],
+    minimum_same_row_gap: int,
 ) -> dict[NodeId, NodeDomain]:
     x_rail_ids = _ordered_active_x_rail_ids(active_grid)
-    rail_count = len(x_rail_ids)
     y_rail_ids = tuple(
         rail.rail_id
         for rail in sorted(active_grid.y_rails, key=lambda rail: rail.logical_rank)
@@ -205,11 +184,6 @@ def _apply_ordered_row_propagation(
         node_ids = row_group.ordered_node_ids
         node_count = len(node_ids)
 
-        if rail_count != _SAFE_ORDERED_ROW_RAIL_COUNT or node_count not in _SAFE_ORDERED_ROW_NODE_COUNTS:
-            raise NotImplementedError(
-                "Only ordered same-row propagation for 3 or 4 nodes on 7 x rails is implemented"
-            )
-
         for node_id in node_ids:
             if node_id not in updated:
                 raise ValueError("ordered_same_row_groups references an unknown node id")
@@ -217,13 +191,17 @@ def _apply_ordered_row_propagation(
                 raise ValueError("A node may not appear in multiple ordered same-row groups")
             nodes_in_groups.add(node_id)
 
-        candidate_assignments = _one_gap_assignments(rail_count, node_count)
+        candidate_assignments = enumerate_minimum_gap_ordered_row_assignments(
+            x_rail_ids,
+            node_count,
+            minimum_same_row_gap=minimum_same_row_gap,
+        )
         valid_assignments: list[tuple[Junction, ...]] = []
         for y_rail_id in y_rail_ids:
-            for assignment in candidate_assignments:
+            for x_assignment in candidate_assignments:
                 junction_assignment = tuple(
                     Junction(
-                        x_rail_id=x_rail_ids[assignment[position]],
+                        x_rail_id=x_assignment[position],
                         y_rail_id=y_rail_id,
                     )
                     for position in range(node_count)
@@ -252,6 +230,7 @@ def propagate_domains(
     domains: dict[NodeId, NodeDomain],
     node_metadata: Sequence[NodePlacementMetadata] = (),
     ordered_same_row_groups: Sequence[OrderedSameRowGroup] = (),
+    minimum_same_row_gap: int = 1,
 ) -> PropagationResult:
     """Run frozen structural propagation to a fixed point.
 
@@ -260,6 +239,8 @@ def propagate_domains(
     """
 
     current_domains = dict(domains)
+    if minimum_same_row_gap < 0:
+        raise ValueError("minimum_same_row_gap must be non-negative")
     metadata_by_node_id = _node_metadata_lookup(node_metadata)
     _validate_domains_on_active_grid(active_grid, current_domains)
 
@@ -292,6 +273,7 @@ def propagate_domains(
             active_grid,
             current_domains,
             ordered_same_row_groups,
+            minimum_same_row_gap,
         )
         if row_domains != current_domains:
             current_domains = row_domains

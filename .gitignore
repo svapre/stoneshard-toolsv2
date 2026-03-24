@@ -9,3 +9,14 @@ build/
 .mypy_cache/
 .idea/
 .vscode/
+toolsv2/logs/
+toolsv2/art/generated/
+toolsv2/output/
+toolsv2/vanilla_extractor/output/_debug_crops/
+toolsv2/vanilla_extractor/output/_ora_build/
+toolsv2/vanilla_extractor/output/*.ora
+toolsv2/vanilla_extractor/output/grid_contact_sheet_extracted.png
+toolsv2/vanilla_extractor/BASE_BACKGROUND.png
+toolsv2/vanilla_extractor/FRAME_ROOT.png
+toolsv2/vanilla_extractor/GATE_AND.png
+toolsv2/vanilla_extractor/NONDIR_PORTS_TB.png

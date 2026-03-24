@@ -20,7 +20,11 @@ from toolsv2.solver_common import (
     RouteRequirement,
     RouteRequirementSchemaView,
 )
-from toolsv2.solver_runtime import RuntimeObjectSet, is_port_ref_usable
+from toolsv2.solver_runtime import (
+    RuntimeObjectSet,
+    can_port_ref_accept_new_attachment,
+    is_port_ref_usable,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,10 +34,13 @@ class RouteRequirementPortAllowance:
     object_ref: ObjectRef
     requirement_kind: str
     port_local_keys: tuple[PortId, ...]
+    requirement_id: str | None = None
 
     def __post_init__(self) -> None:
         if not self.requirement_kind:
             raise ValueError("RouteRequirementPortAllowance.requirement_kind must not be empty")
+        if self.requirement_id is not None and not self.requirement_id:
+            raise ValueError("RouteRequirementPortAllowance.requirement_id must not be empty")
         if len(self.port_local_keys) != len(set(self.port_local_keys)):
             raise ValueError("RouteRequirementPortAllowance.port_local_keys must be unique")
 
@@ -47,20 +54,20 @@ class StaticRouteRequirementSchemaView:
 
     def __post_init__(self) -> None:
         source_keys = tuple(
-            (allowance.object_ref, allowance.requirement_kind)
+            (allowance.object_ref, allowance.requirement_kind, allowance.requirement_id)
             for allowance in self.source_allowances
         )
         sink_keys = tuple(
-            (allowance.object_ref, allowance.requirement_kind)
+            (allowance.object_ref, allowance.requirement_kind, allowance.requirement_id)
             for allowance in self.sink_allowances
         )
         if len(source_keys) != len(set(source_keys)):
             raise ValueError(
-                "StaticRouteRequirementSchemaView.source_allowances must be unique by object_ref and requirement_kind"
+                "StaticRouteRequirementSchemaView.source_allowances must be unique by object_ref, requirement_kind, and requirement_id"
             )
         if len(sink_keys) != len(set(sink_keys)):
             raise ValueError(
-                "StaticRouteRequirementSchemaView.sink_allowances must be unique by object_ref and requirement_kind"
+                "StaticRouteRequirementSchemaView.sink_allowances must be unique by object_ref, requirement_kind, and requirement_id"
             )
 
     def source_port_keys(
@@ -68,26 +75,34 @@ class StaticRouteRequirementSchemaView:
         object_ref: ObjectRef,
         route_requirement: RouteRequirement,
     ) -> tuple[PortId, ...]:
+        fallback: tuple[PortId, ...] = ()
         for allowance in self.source_allowances:
             if (
                 allowance.object_ref == object_ref
                 and allowance.requirement_kind == route_requirement.requirement_kind
             ):
-                return allowance.port_local_keys
-        return ()
+                if allowance.requirement_id == route_requirement.requirement_id:
+                    return allowance.port_local_keys
+                if allowance.requirement_id is None:
+                    fallback = allowance.port_local_keys
+        return fallback
 
     def sink_port_keys(
         self,
         object_ref: ObjectRef,
         route_requirement: RouteRequirement,
     ) -> tuple[PortId, ...]:
+        fallback: tuple[PortId, ...] = ()
         for allowance in self.sink_allowances:
             if (
                 allowance.object_ref == object_ref
                 and allowance.requirement_kind == route_requirement.requirement_kind
             ):
-                return allowance.port_local_keys
-        return ()
+                if allowance.requirement_id == route_requirement.requirement_id:
+                    return allowance.port_local_keys
+                if allowance.requirement_id is None:
+                    fallback = allowance.port_local_keys
+        return fallback
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,8 +114,9 @@ class V1CandidateEligibility:
     - source/sink object port allowance lookups
     - conservative acceptance of active intermediate junction ports
 
-    TODO: richer local capacity accounting and non-junction intermediate object
-    handling remain open.
+    TODO: multi-step tentative capacity accounting within a not-yet-committed route
+    plan remains open. Current capacity checks are authoritative at commit and
+    conservative against the current committed snapshot only.
     """
 
     def __call__(
@@ -141,6 +157,10 @@ class V1CandidateEligibility:
                 return False
             if not is_port_ref_usable(runtime_objects, candidate_port_ref):
                 return False
+            if not can_port_ref_accept_new_attachment(runtime_objects, current_port_ref):
+                return False
+            if not can_port_ref_accept_new_attachment(runtime_objects, candidate_port_ref):
+                return False
         except KeyError:
             return False
 
@@ -159,10 +179,7 @@ class V1CandidateEligibility:
             )
         if isinstance(candidate_owner_ref, Junction):
             return True
-
-        raise NotImplementedError(
-            "V1CandidateEligibility supports only source/sink object checks and intermediate junction ports"
-        )
+        return False
 
 
 def build_v1_candidate_eligibility() -> CandidateEligibility:

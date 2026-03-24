@@ -4,6 +4,7 @@ import unittest
 from fractions import Fraction
 
 from toolsv2.profile import (
+    apply_band_dynamic_y_rail_layout,
     build_authored_tier_y_rails,
     build_default_x_rails,
     build_minimum_active_grid,
@@ -60,7 +61,28 @@ class ProfileTests(unittest.TestCase):
             tuple(str(rail.rail_id) for rail in expanded.y_rails),
         )
 
+    def test_apply_band_dynamic_y_rail_layout_uses_explicit_relative_positions(self) -> None:
+        grid = build_minimum_active_grid(
+            default_x_rail_ids=("x0", "x1"),
+            authored_tier_rail_ids=("tier_0", "tier_1"),
+        )
+        band_id = grid.y_bands[0].band_id
+
+        expanded = apply_band_dynamic_y_rail_layout(
+            grid,
+            band_id,
+            ("dyn_a", "dyn_b"),
+            (Fraction(3, 7), Fraction(4, 7)),
+        )
+        dynamic_ranks = {
+            str(rail.rail_id): rail.logical_rank
+            for rail in expanded.y_rails
+            if rail.kind == "dynamic"
+        }
+
+        self.assertEqual(Fraction(3, 7), dynamic_ranks["dyn_a"])
+        self.assertEqual(Fraction(4, 7), dynamic_ranks["dyn_b"])
+
 
 if __name__ == "__main__":
     unittest.main()
-

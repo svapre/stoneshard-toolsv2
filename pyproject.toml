@@ -5,10 +5,10 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "stoneshard-toolsv2"
 version = "0.1.0"
-description = "Current locked Toolsv2 solver/runtime stack."
+description = "Current Toolsv2 solver, layout, and base-render stack."
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = ["Pillow>=10,<12"]
 
 [tool.setuptools]
 include-package-data = false
@@ -17,4 +17,16 @@ include-package-data = false
 include = ["toolsv2", "toolsv2.*"]
 
 [tool.setuptools.package-data]
-toolsv2 = ["*.md"]
+toolsv2 = [
+  "*.md",
+  "config/*.ini",
+  "examples/*.json",
+  "art/source/background/base/*.png",
+  "art/source/connection/external_straight/*.png",
+  "art/source/connection/junction_piece/*.png",
+  "art/source/node/and_knot/*.png",
+  "art/source/node/skill_frame/*.png",
+  "vanilla_extractor/input/*.png",
+  "vanilla_extractor/output/*.csv",
+  "vanilla_extractor/output/*.json",
+]

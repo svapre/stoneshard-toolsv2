@@ -388,6 +388,73 @@ class RouteCommitTests(unittest.TestCase):
         self.assertEqual("failure_snapshot", conflicting_result.status)
         self.assertEqual("success", clean_result.status)
 
+    def test_commit_rejects_new_attachment_when_finite_port_capacity_is_full(self) -> None:
+        source_port_ref = PortRef(
+            owner_ref=NodeId("source_node"),
+            owner_local_key=PortId("east"),
+        )
+        sink_port_ref = PortRef(
+            owner_ref=NodeId("sink_node"),
+            owner_local_key=PortId("west"),
+        )
+        existing_port_ref = PortRef(
+            owner_ref=NodeId("existing_node"),
+            owner_local_key=PortId("east"),
+        )
+        current_state = PortGraphState(
+            objects=RuntimeObjectSet(
+                nodes=(
+                    RuntimeNode(
+                        node_id=NodeId("source_node"),
+                        ports=(Port(port_ref=source_port_ref),),
+                    ),
+                    RuntimeNode(
+                        node_id=NodeId("sink_node"),
+                        ports=(Port(port_ref=sink_port_ref, capacity=1),),
+                    ),
+                    RuntimeNode(
+                        node_id=NodeId("existing_node"),
+                        ports=(Port(port_ref=existing_port_ref),),
+                    ),
+                ),
+                edges=(
+                    PortEdge(
+                        edge_id=PortEdgeId("edge::existing_to_sink"),
+                        port_ref_a=existing_port_ref,
+                        port_ref_b=sink_port_ref,
+                        scope="external",
+                    ),
+                ),
+            ),
+            graph=PortGraphIndex(edge_ids=(PortEdgeId("edge::existing_to_sink"),)),
+        )
+        route_plan = TentativeRoutePlan(
+            route_requirement_id="req::capacity",
+            start_entry_context=EntryContext(
+                current_port_ref=source_port_ref,
+                incoming_edge_id=None,
+            ),
+            steps=(
+                TentativeRouteStep(
+                    step_kind="tentative_connection",
+                    from_entry_context=EntryContext(
+                        current_port_ref=source_port_ref,
+                        incoming_edge_id=None,
+                    ),
+                    to_entry_context=EntryContext(
+                        current_port_ref=sink_port_ref,
+                        incoming_edge_id=None,
+                    ),
+                ),
+            ),
+            reached_sink_port_ref=sink_port_ref,
+        )
+
+        result = V1RouteCommit()(current_state, route_plan)
+
+        self.assertEqual("failure_snapshot", result.status)
+        self.assertIsNone(result.new_state)
+
     def test_no_search_orchestration_behavior_is_embedded_in_commit(self) -> None:
         source_port_ref = PortRef(
             owner_ref=NodeId("source_node"),

@@ -231,6 +231,38 @@ class RuntimeSnapshotBuilderTests(unittest.TestCase):
         self.assertEqual(original_domains, seed.domains)
         self.assertEqual(original_assignments, seed.assignments)
 
+    def test_builder_copies_port_capacity_into_runtime_ports(self) -> None:
+        active_grid = build_minimum_active_grid(
+            default_x_rail_ids=("x0",),
+            authored_tier_rail_ids=("tier_0",),
+        )
+        only_junction = next(iter(self._junctions_from_grid(active_grid)))
+        node_id = NodeId("source")
+        state = V1RuntimeSnapshotBuilder(
+            active_grid=active_grid,
+            node_definitions={
+                node_id: NodeDefinition(
+                    node_id=node_id,
+                    kind="basic",
+                    ports=(
+                        PortDefinition(
+                            port_id=PortId("east"),
+                            orientation="east",
+                            capacity=1,
+                        ),
+                        PortDefinition(
+                            port_id=PortId("west"),
+                            orientation="west",
+                        ),
+                    ),
+                ),
+            },
+        )(self._build_seed(node_id, only_junction))
+
+        east_port, west_port = state.objects.nodes[0].ports
+        self.assertEqual(1, east_port.capacity)
+        self.assertIsNone(west_port.capacity)
+
     def _junctions_from_grid(self, active_grid):
         ordered_x = sorted(active_grid.x_rails, key=lambda rail: rail.order)
         ordered_y = sorted(active_grid.y_rails, key=lambda rail: rail.logical_rank)

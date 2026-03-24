@@ -1,4 +1,4 @@
-"""Initial raw-domain construction for the frozen safe subset only.
+"""Initial raw-domain construction from frozen hard constraints only.
 
 This module builds initial explicit legal-junction sets from the current
 active grid and explicit node metadata. It does not perform propagation,
@@ -9,14 +9,12 @@ Implemented subset:
 - authored-tier nodes with singleton-y junction sets
 - dynamic nodes with junction sets from currently active allowed y rails
 - unconstrained ``Dom_x`` as an internal helper over all active x rails
-- ordered same-row ``Dom_x`` only as an internal helper for the explicitly
-  requested safe cases:
-  - 3 ordered nodes on 7 x rails under the one-gap rule
-  - 4 ordered nodes on 7 x rails under the one-gap rule
+- ordered same-row ``Dom_x`` from the current layout-profile minimum spacing
+  rule on the active x rails
 
-Open items such as broader ``Dom_x`` construction, general row-spacing
-patterns, and propagation-side pruning are intentionally not implemented.
-Unsupported cases fail loudly with ``NotImplementedError``.
+Open items such as broader ``Dom_x`` policy beyond the frozen hard constraints,
+general row-spacing policy beyond the current layout-profile minimum-gap rule, and
+propagation-side pruning beyond the current subset remain intentionally open.
 """
 
 from __future__ import annotations
@@ -35,8 +33,7 @@ from toolsv2.solver_types import (
 )
 
 
-_SAFE_ORDERED_ROW_RAIL_COUNT = 7
-_SAFE_ONE_GAP = 1
+_DEFAULT_MINIMUM_SAME_ROW_GAP = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,10 +59,12 @@ class NodePlacementMetadata:
 
 @dataclass(frozen=True, slots=True)
 class OrderedSameRowGroup:
-    """Explicit same-row order metadata for the small frozen safe subset.
+    """Explicit same-row order metadata for current hard-constraint handling.
 
-    Only one-gap ordered-row ``Dom_x`` on 7 x rails is implemented here.
-    Broader row-shape handling remains open.
+    Current raw-domain and propagation support use row order plus the active
+    layout-profile minimum same-row spacing hard constraint on the current
+    active x rails.
+    Broader row-shape policy remains open.
     """
 
     ordered_node_ids: tuple[NodeId, ...]
@@ -123,52 +122,51 @@ def build_dynamic_dom_y(
     )
 
 
-def _one_gap_assignments(
-    rail_count: int,
+def enumerate_minimum_gap_ordered_row_assignments(
+    x_rail_ids: Sequence[LogicalXRailId],
     node_count: int,
-) -> tuple[tuple[int, ...], ...]:
+    minimum_same_row_gap: int = _DEFAULT_MINIMUM_SAME_ROW_GAP,
+) -> tuple[tuple[LogicalXRailId, ...], ...]:
+    ordered_x_rail_ids = tuple(x_rail_ids)
+    if minimum_same_row_gap < 0:
+        raise ValueError("minimum_same_row_gap must be non-negative")
     return tuple(
-        assignment
-        for assignment in combinations(range(rail_count), node_count)
+        tuple(ordered_x_rail_ids[rail_index] for rail_index in assignment)
+        for assignment in combinations(range(len(ordered_x_rail_ids)), node_count)
         if all(
-            assignment[index + 1] - assignment[index] >= (_SAFE_ONE_GAP + 1)
+            assignment[index + 1] - assignment[index] >= (minimum_same_row_gap + 1)
             for index in range(node_count - 1)
         )
     )
 
 
-def build_safe_ordered_row_dom_x(
+def build_ordered_same_row_dom_x(
     active_grid: ActiveGridState,
     ordered_node_ids: Sequence[NodeId],
+    minimum_same_row_gap: int = _DEFAULT_MINIMUM_SAME_ROW_GAP,
 ) -> dict[NodeId, tuple[LogicalXRailId, ...]]:
-    """Build ``Dom_x`` for the explicitly supported ordered same-row cases.
-
-    Supported cases only:
-
-    - 3 ordered nodes on 7 x rails, using the one-gap rule
-    - 4 ordered nodes on 7 x rails, using the one-gap rule
-    """
+    """Build ``Dom_x`` for ordered same-row groups under the minimum-gap rule."""
 
     x_rail_ids = _ordered_x_rail_ids(active_grid)
-    rail_count = len(x_rail_ids)
     node_ids = tuple(ordered_node_ids)
     node_count = len(node_ids)
-
-    if rail_count != _SAFE_ORDERED_ROW_RAIL_COUNT or node_count not in {3, 4}:
-        raise NotImplementedError(
-            "Only ordered same-row cases for 3 or 4 nodes on 7 x rails are frozen here"
-        )
-
-    assignments = _one_gap_assignments(rail_count, node_count)
-    if not assignments:
-        raise ValueError("Safe ordered-row case produced no legal assignments")
+    assignments = enumerate_minimum_gap_ordered_row_assignments(
+        x_rail_ids,
+        node_count,
+        minimum_same_row_gap=minimum_same_row_gap,
+    )
 
     domains_by_position = []
     for position in range(node_count):
+        supported_x_rail_ids = {
+            assignment[position]
+            for assignment in assignments
+        }
         domains_by_position.append(
             tuple(
-                x_rail_ids[rail_index]
-                for rail_index in sorted({assignment[position] for assignment in assignments})
+                x_rail_id
+                for x_rail_id in x_rail_ids
+                if x_rail_id in supported_x_rail_ids
             )
         )
 
@@ -182,6 +180,7 @@ def build_raw_domains(
     active_grid: ActiveGridState,
     node_metadata: Sequence[NodePlacementMetadata],
     ordered_same_row_groups: Sequence[OrderedSameRowGroup] = (),
+    minimum_same_row_gap: int = _DEFAULT_MINIMUM_SAME_ROW_GAP,
 ) -> dict[NodeId, NodeDomain]:
     """Build raw node domains as explicit legal-junction sets.
 
@@ -192,6 +191,8 @@ def build_raw_domains(
     metadata_by_node_id = {metadata.node_id: metadata for metadata in node_metadata}
     if len(metadata_by_node_id) != len(tuple(node_metadata)):
         raise ValueError("node_metadata contains duplicate node ids")
+    if minimum_same_row_gap < 0:
+        raise ValueError("minimum_same_row_gap must be non-negative")
 
     all_x_rail_ids = _ordered_x_rail_ids(active_grid)
     x_domains_by_node_id: dict[NodeId, tuple[LogicalXRailId, ...]] = {
@@ -207,7 +208,11 @@ def build_raw_domains(
             if node_id in nodes_with_row_domains:
                 raise ValueError("A node may not appear in multiple ordered same-row groups")
 
-        row_x_domains = build_safe_ordered_row_dom_x(active_grid, row_group.ordered_node_ids)
+        row_x_domains = build_ordered_same_row_dom_x(
+            active_grid,
+            row_group.ordered_node_ids,
+            minimum_same_row_gap=minimum_same_row_gap,
+        )
         x_domains_by_node_id.update(row_x_domains)
         nodes_with_row_domains.update(row_group.ordered_node_ids)
 

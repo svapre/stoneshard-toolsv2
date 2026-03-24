@@ -19,6 +19,7 @@ from toolsv2.solver_runtime import (
     PortGraphIndex,
     PortGraphState,
     RuntimeObjectSet,
+    can_port_ref_accept_new_attachment,
     is_edge_id_usable,
     is_port_ref_usable,
 )
@@ -131,6 +132,13 @@ def _materialize_added_edges(
         _port_pair_key(edge.port_ref_a, edge.port_ref_b)
         for edge in current_state.objects.edges
     }
+    attachment_counts: dict[PortRef, int] = {}
+    for edge in current_state.objects.edges:
+        if not edge.is_active:
+            continue
+        attachment_counts[edge.port_ref_a] = attachment_counts.get(edge.port_ref_a, 0) + 1
+        attachment_counts[edge.port_ref_b] = attachment_counts.get(edge.port_ref_b, 0) + 1
+    base_attachment_counts = dict(attachment_counts)
     added_edges: list[PortEdge] = []
     created_edge_ids_by_step_index: dict[int, PortEdgeId] = {}
 
@@ -147,6 +155,26 @@ def _materialize_added_edges(
                 return None
             if not is_port_ref_usable(current_state.objects, to_port_ref):
                 return None
+            if not can_port_ref_accept_new_attachment(
+                current_state.objects,
+                from_port_ref,
+                additional_attachments=(
+                    attachment_counts.get(from_port_ref, 0)
+                    - base_attachment_counts.get(from_port_ref, 0)
+                    + 1
+                ),
+            ):
+                return None
+            if not can_port_ref_accept_new_attachment(
+                current_state.objects,
+                to_port_ref,
+                additional_attachments=(
+                    attachment_counts.get(to_port_ref, 0)
+                    - base_attachment_counts.get(to_port_ref, 0)
+                    + 1
+                ),
+            ):
+                return None
         except KeyError:
             return None
 
@@ -160,6 +188,8 @@ def _materialize_added_edges(
         existing_edge_ids.add(edge_id)
         existing_pairs.add(pair_key)
         created_edge_ids_by_step_index[step_index] = edge_id
+        attachment_counts[from_port_ref] = attachment_counts.get(from_port_ref, 0) + 1
+        attachment_counts[to_port_ref] = attachment_counts.get(to_port_ref, 0) + 1
 
         scope, owner_object_ref = _derived_scope_and_owner(from_port_ref, to_port_ref)
         added_edges.append(

@@ -1,4 +1,4 @@
-"""Concrete v1 build-geometry feasibility over runtime junctions only.
+"""Concrete v1 build-geometry feasibility over current runtime objects.
 
 This module implements only physical/build-geometric candidate-port discovery.
 It must not perform logical eligibility checks, route-requirement checks,
@@ -18,11 +18,13 @@ from toolsv2.solver_common import (
     GeometryBuildFeasibility,
     Junction,
     NeighborRelation,
+    ObjectRef,
     PortId,
     PortRef,
 )
 from toolsv2.solver_runtime import (
     RuntimeJunction,
+    RuntimeNode,
     RuntimeObjectSet,
     is_object_ref_active,
     is_port_ref_usable,
@@ -50,16 +52,30 @@ def _junction_lookup(runtime_objects: RuntimeObjectSet) -> dict[Junction, Runtim
     }
 
 
-def _build_geometry_profile_for_junction(
+def _node_lookup(runtime_objects: RuntimeObjectSet) -> dict[ObjectRef, RuntimeNode]:
+    return {
+        node.node_id: node
+        for node in runtime_objects.nodes
+    }
+
+
+def _build_geometry_profile_for_object(
     visual_profile_catalog: VisualProfileCatalog,
-    runtime_junction: RuntimeJunction,
-) -> BuildGeometryProfile:
-    profile_key = runtime_junction.render_profile.profile_key
+    runtime_objects: RuntimeObjectSet,
+    object_ref: ObjectRef,
+) -> BuildGeometryProfile | None:
+    if isinstance(object_ref, Junction):
+        runtime_owner = _junction_lookup(runtime_objects).get(object_ref)
+        if runtime_owner is None:
+            raise KeyError(f"Unknown runtime junction: {object_ref}")
+    else:
+        runtime_owner = _node_lookup(runtime_objects).get(object_ref)
+        if runtime_owner is None:
+            raise KeyError(f"Unknown runtime node: {object_ref}")
+
+    profile_key = runtime_owner.render_profile.profile_key
     if profile_key is None:
-        raise NotImplementedError(
-            "V1JunctionGeometryBuildFeasibility requires junction render_profile.profile_key "
-            "with build geometry data"
-        )
+        return None
     return visual_profile_catalog.build_geometry_profile(profile_key)
 
 
@@ -72,7 +88,7 @@ def _port_geometry_by_id(profile: BuildGeometryProfile) -> dict[PortId, PortGeom
 
 @dataclass(frozen=True, slots=True)
 class V1JunctionGeometryBuildFeasibility:
-    """Concrete v1 geometry/build-feasibility for junction frontier contexts.
+    """Concrete v1 geometry/build-feasibility for current runtime objects.
 
     This class returns only physically/build-feasible target ports in one
     local step. It does not inspect route requirements or semantic port roles.
@@ -97,10 +113,6 @@ class V1JunctionGeometryBuildFeasibility:
 
         current_object_ref = frontier_context.current_object_ref
         current_port_ref = frontier_context.current_port_ref
-        if not isinstance(current_object_ref, Junction):
-            raise NotImplementedError(
-                "V1JunctionGeometryBuildFeasibility supports junction frontier objects only"
-            )
         if current_port_ref.owner_ref != current_object_ref:
             raise ValueError(
                 "FrontierContext.current_port_ref must belong to FrontierContext.current_object_ref"
@@ -110,18 +122,17 @@ class V1JunctionGeometryBuildFeasibility:
                 "NeighborRelation.from_object_ref must match FrontierContext.current_object_ref"
             )
 
-        junction_lookup = _junction_lookup(runtime_objects)
-        current_junction = junction_lookup.get(current_object_ref)
-        if current_junction is None:
-            raise KeyError(f"Unknown frontier junction: {current_object_ref}")
         if not is_object_ref_active(runtime_objects, current_object_ref):
             return ()
         if not is_port_ref_usable(runtime_objects, current_port_ref):
             return ()
-        current_profile = _build_geometry_profile_for_junction(
+        current_profile = _build_geometry_profile_for_object(
             self.visual_profile_catalog,
-            current_junction,
+            runtime_objects,
+            current_object_ref,
         )
+        if current_profile is None:
+            return ()
         current_port_geometry = _port_geometry_by_id(current_profile).get(
             current_port_ref.owner_local_key
         )
@@ -131,20 +142,20 @@ class V1JunctionGeometryBuildFeasibility:
             )
 
         target_object_ref = neighbor_relation.to_object_ref
-        if not isinstance(target_object_ref, Junction):
-            raise NotImplementedError(
-                "V1JunctionGeometryBuildFeasibility supports junction target objects only"
-            )
-        target_junction = junction_lookup.get(target_object_ref)
-        if target_junction is None:
-            raise KeyError(f"Unknown target junction: {target_object_ref}")
         if not is_object_ref_active(runtime_objects, target_object_ref):
             return ()
-        target_profile = _build_geometry_profile_for_junction(
+        target_profile = _build_geometry_profile_for_object(
             self.visual_profile_catalog,
-            target_junction,
+            runtime_objects,
+            target_object_ref,
         )
+        if target_profile is None:
+            return ()
         target_port_geometry_by_id = _port_geometry_by_id(target_profile)
+        if isinstance(target_object_ref, Junction):
+            target_ports = _junction_lookup(runtime_objects)[target_object_ref].ports
+        else:
+            target_ports = _node_lookup(runtime_objects)[target_object_ref].ports
 
         if neighbor_relation.relation_kind == LOCAL_SAME_OBJECT_RELATION_KIND:
             if target_object_ref != current_object_ref:
@@ -158,7 +169,7 @@ class V1JunctionGeometryBuildFeasibility:
             }
             return tuple(
                 port.port_ref
-                for port in target_junction.ports
+                for port in target_ports
                 if port.port_ref.owner_local_key in allowed_target_port_ids
             )
 
@@ -175,7 +186,7 @@ class V1JunctionGeometryBuildFeasibility:
             current_connection_families = set(current_port_geometry.connection_family_keys)
             return tuple(
                 port.port_ref
-                for port in target_junction.ports
+                for port in target_ports
                 if (
                     port.port_ref.owner_local_key in target_port_geometry_by_id
                     and target_port_geometry_by_id[port.port_ref.owner_local_key].attach_direction

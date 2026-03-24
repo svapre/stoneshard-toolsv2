@@ -27,8 +27,10 @@ from toolsv2.solver_types import (
     AdjacencyFinder,
     BandId,
     build_runtime_junctions_for_active_grid,
+    can_port_ref_accept_new_attachment,
     CandidateEligibility,
     EntryContext,
+    direct_attachment_count,
     Junction,
     FrontierContext,
     GeometryBuildFeasibility,
@@ -63,12 +65,14 @@ from toolsv2.solver_types import (
 from toolsv2.visual_profiles import (
     BuildGeometryProfile,
     ConnectionFamilyKey,
+    DEFAULT_AND_KNOT_PROFILE_KEY,
     DEFAULT_PLAIN_JUNCTION_PROFILE_KEY,
     InternalTransitionSpec,
     LocalFootprint,
     PortGeometrySpec,
     RenderStyleProfile,
     StaticVisualProfileCatalog,
+    build_v1_core_visual_profile_catalog,
 )
 
 
@@ -351,6 +355,192 @@ class SolverTypesTests(unittest.TestCase):
             relations,
         )
 
+    def test_node_frontier_returns_cross_object_neighbor_relation_to_adjacent_junction(self) -> None:
+        grid = build_minimum_active_grid(
+            default_x_rail_ids=("x0", "x1"),
+            authored_tier_rail_ids=("tier_0",),
+        )
+        left_junction, right_junction = build_runtime_junctions_for_active_grid(grid)
+        source_node = RuntimeNode(
+            node_id=NodeId("source_node"),
+            current_junction_id=left_junction.junction_id,
+            ports=(
+                Port(port_ref=PortRef(owner_ref=NodeId("source_node"), owner_local_key=PortId("top"))),
+                Port(port_ref=PortRef(owner_ref=NodeId("source_node"), owner_local_key=PortId("left"))),
+                Port(port_ref=PortRef(owner_ref=NodeId("source_node"), owner_local_key=PortId("right"))),
+                Port(port_ref=PortRef(owner_ref=NodeId("source_node"), owner_local_key=PortId("bottom"))),
+            ),
+            render_profile=RenderProfileRef(profile_key=DEFAULT_AND_KNOT_PROFILE_KEY),
+        )
+        runtime_objects = RuntimeObjectSet(
+            nodes=(source_node,),
+            junctions=(
+                replace(left_junction, occupying_node_id=source_node.node_id, is_active=False),
+                right_junction,
+            ),
+        )
+        finder = V1JunctionAdjacencyFinder(
+            active_grid=grid,
+            visual_profile_catalog=build_v1_core_visual_profile_catalog(
+                skill_frame_top_port_id=PortId("top"),
+                skill_frame_bottom_port_id=PortId("bottom"),
+                and_knot_top_port_id=PortId("top"),
+                and_knot_left_port_id=PortId("left"),
+                and_knot_right_port_id=PortId("right"),
+                and_knot_bottom_port_id=PortId("bottom"),
+            ),
+        )
+
+        relations = finder(
+            runtime_objects=runtime_objects,
+            frontier_context=FrontierContext(
+                current_object_ref=source_node.node_id,
+                current_port_ref=PortRef(
+                    owner_ref=source_node.node_id,
+                    owner_local_key=PortId("right"),
+                ),
+            ),
+        )
+
+        self.assertEqual(
+            (
+                NeighborRelation(
+                    from_object_ref=source_node.node_id,
+                    to_object_ref=right_junction.junction_id,
+                    relation_kind=CROSS_OBJECT_BOUNDARY_RELATION_KIND,
+                    approach_direction="east",
+                ),
+            ),
+            relations,
+        )
+
+    def test_node_frontier_returns_adjacent_occupied_node_neighbor_relation(self) -> None:
+        grid = build_minimum_active_grid(
+            default_x_rail_ids=("x0", "x1"),
+            authored_tier_rail_ids=("tier_0",),
+        )
+        left_junction, right_junction = build_runtime_junctions_for_active_grid(grid)
+        source_node = RuntimeNode(
+            node_id=NodeId("source_node"),
+            current_junction_id=left_junction.junction_id,
+            ports=(
+                Port(port_ref=PortRef(owner_ref=NodeId("source_node"), owner_local_key=PortId("top"))),
+                Port(port_ref=PortRef(owner_ref=NodeId("source_node"), owner_local_key=PortId("left"))),
+                Port(port_ref=PortRef(owner_ref=NodeId("source_node"), owner_local_key=PortId("right"))),
+                Port(port_ref=PortRef(owner_ref=NodeId("source_node"), owner_local_key=PortId("bottom"))),
+            ),
+            render_profile=RenderProfileRef(profile_key=DEFAULT_AND_KNOT_PROFILE_KEY),
+        )
+        sink_node = RuntimeNode(
+            node_id=NodeId("sink_node"),
+            current_junction_id=right_junction.junction_id,
+            ports=(
+                Port(port_ref=PortRef(owner_ref=NodeId("sink_node"), owner_local_key=PortId("top"))),
+                Port(port_ref=PortRef(owner_ref=NodeId("sink_node"), owner_local_key=PortId("left"))),
+                Port(port_ref=PortRef(owner_ref=NodeId("sink_node"), owner_local_key=PortId("right"))),
+                Port(port_ref=PortRef(owner_ref=NodeId("sink_node"), owner_local_key=PortId("bottom"))),
+            ),
+            render_profile=RenderProfileRef(profile_key=DEFAULT_AND_KNOT_PROFILE_KEY),
+        )
+        runtime_objects = RuntimeObjectSet(
+            nodes=(source_node, sink_node),
+            junctions=(
+                replace(left_junction, occupying_node_id=source_node.node_id, is_active=False),
+                replace(right_junction, occupying_node_id=sink_node.node_id, is_active=False),
+            ),
+        )
+        finder = V1JunctionAdjacencyFinder(
+            active_grid=grid,
+            visual_profile_catalog=build_v1_core_visual_profile_catalog(
+                skill_frame_top_port_id=PortId("top"),
+                skill_frame_bottom_port_id=PortId("bottom"),
+                and_knot_top_port_id=PortId("top"),
+                and_knot_left_port_id=PortId("left"),
+                and_knot_right_port_id=PortId("right"),
+                and_knot_bottom_port_id=PortId("bottom"),
+            ),
+        )
+
+        relations = finder(
+            runtime_objects=runtime_objects,
+            frontier_context=FrontierContext(
+                current_object_ref=source_node.node_id,
+                current_port_ref=PortRef(
+                    owner_ref=source_node.node_id,
+                    owner_local_key=PortId("right"),
+                ),
+            ),
+        )
+
+        self.assertEqual(
+            (
+                NeighborRelation(
+                    from_object_ref=source_node.node_id,
+                    to_object_ref=sink_node.node_id,
+                    relation_kind=CROSS_OBJECT_BOUNDARY_RELATION_KIND,
+                    approach_direction="east",
+                ),
+            ),
+            relations,
+        )
+
+    def test_junction_frontier_returns_adjacent_node_neighbor_relation(self) -> None:
+        grid = build_minimum_active_grid(
+            default_x_rail_ids=("x0", "x1"),
+            authored_tier_rail_ids=("tier_0",),
+        )
+        left_junction, right_junction = build_runtime_junctions_for_active_grid(grid)
+        sink_node = RuntimeNode(
+            node_id=NodeId("sink_node"),
+            current_junction_id=right_junction.junction_id,
+            ports=(
+                Port(port_ref=PortRef(owner_ref=NodeId("sink_node"), owner_local_key=PortId("top"))),
+                Port(port_ref=PortRef(owner_ref=NodeId("sink_node"), owner_local_key=PortId("left"))),
+                Port(port_ref=PortRef(owner_ref=NodeId("sink_node"), owner_local_key=PortId("right"))),
+                Port(port_ref=PortRef(owner_ref=NodeId("sink_node"), owner_local_key=PortId("bottom"))),
+            ),
+            render_profile=RenderProfileRef(profile_key=DEFAULT_AND_KNOT_PROFILE_KEY),
+        )
+        runtime_objects = RuntimeObjectSet(
+            nodes=(sink_node,),
+            junctions=(
+                left_junction,
+                replace(right_junction, occupying_node_id=sink_node.node_id, is_active=False),
+            ),
+        )
+        finder = V1JunctionAdjacencyFinder(
+            active_grid=grid,
+            visual_profile_catalog=build_v1_core_visual_profile_catalog(
+                skill_frame_top_port_id=PortId("top"),
+                skill_frame_bottom_port_id=PortId("bottom"),
+                and_knot_top_port_id=PortId("top"),
+                and_knot_left_port_id=PortId("left"),
+                and_knot_right_port_id=PortId("right"),
+                and_knot_bottom_port_id=PortId("bottom"),
+            ),
+        )
+
+        relations = finder(
+            runtime_objects=runtime_objects,
+            frontier_context=FrontierContext(
+                current_object_ref=left_junction.junction_id,
+                current_port_ref=PortRef(
+                    owner_ref=left_junction.junction_id,
+                    owner_local_key=PortId("east"),
+                ),
+            ),
+        )
+
+        self.assertIn(
+            NeighborRelation(
+                from_object_ref=left_junction.junction_id,
+                to_object_ref=sink_node.node_id,
+                relation_kind=CROSS_OBJECT_BOUNDARY_RELATION_KIND,
+                approach_direction="east",
+            ),
+            relations,
+        )
+
     def test_same_object_local_geometry_returns_distinct_ports_on_same_junction(self) -> None:
         grid = build_minimum_active_grid(
             default_x_rail_ids=("x0",),
@@ -418,6 +608,194 @@ class SolverTypesTests(unittest.TestCase):
                     owner_ref=right_junction.junction_id,
                     owner_local_key=PortId("west"),
                 ),
+            ),
+            candidates,
+        )
+
+    def test_node_to_junction_geometry_returns_opposite_boundary_port(self) -> None:
+        grid = build_minimum_active_grid(
+            default_x_rail_ids=("x0", "x1"),
+            authored_tier_rail_ids=("tier_0",),
+        )
+        left_junction, right_junction = build_runtime_junctions_for_active_grid(grid)
+        source_node = RuntimeNode(
+            node_id=NodeId("source_node"),
+            current_junction_id=left_junction.junction_id,
+            ports=(
+                Port(port_ref=PortRef(owner_ref=NodeId("source_node"), owner_local_key=PortId("top"))),
+                Port(port_ref=PortRef(owner_ref=NodeId("source_node"), owner_local_key=PortId("left"))),
+                Port(port_ref=PortRef(owner_ref=NodeId("source_node"), owner_local_key=PortId("right"))),
+                Port(port_ref=PortRef(owner_ref=NodeId("source_node"), owner_local_key=PortId("bottom"))),
+            ),
+            render_profile=RenderProfileRef(profile_key=DEFAULT_AND_KNOT_PROFILE_KEY),
+        )
+        runtime_objects = RuntimeObjectSet(
+            nodes=(source_node,),
+            junctions=(
+                replace(left_junction, occupying_node_id=source_node.node_id, is_active=False),
+                right_junction,
+            ),
+        )
+        geometry = V1JunctionGeometryBuildFeasibility(
+            visual_profile_catalog=build_v1_core_visual_profile_catalog(
+                skill_frame_top_port_id=PortId("top"),
+                skill_frame_bottom_port_id=PortId("bottom"),
+                and_knot_top_port_id=PortId("top"),
+                and_knot_left_port_id=PortId("left"),
+                and_knot_right_port_id=PortId("right"),
+                and_knot_bottom_port_id=PortId("bottom"),
+            ),
+        )
+
+        candidates = geometry(
+            runtime_objects=runtime_objects,
+            frontier_context=FrontierContext(
+                current_object_ref=source_node.node_id,
+                current_port_ref=PortRef(
+                    owner_ref=source_node.node_id,
+                    owner_local_key=PortId("right"),
+                ),
+            ),
+            neighbor_relation=NeighborRelation(
+                from_object_ref=source_node.node_id,
+                to_object_ref=right_junction.junction_id,
+                relation_kind=CROSS_OBJECT_BOUNDARY_RELATION_KIND,
+                approach_direction="east",
+            ),
+        )
+
+        self.assertEqual(
+            (
+                PortRef(owner_ref=right_junction.junction_id, owner_local_key=PortId("west")),
+            ),
+            candidates,
+        )
+
+    def test_junction_to_node_geometry_returns_opposite_boundary_node_port(self) -> None:
+        grid = build_minimum_active_grid(
+            default_x_rail_ids=("x0", "x1"),
+            authored_tier_rail_ids=("tier_0",),
+        )
+        left_junction, right_junction = build_runtime_junctions_for_active_grid(grid)
+        sink_node = RuntimeNode(
+            node_id=NodeId("sink_node"),
+            current_junction_id=right_junction.junction_id,
+            ports=(
+                Port(port_ref=PortRef(owner_ref=NodeId("sink_node"), owner_local_key=PortId("top"))),
+                Port(port_ref=PortRef(owner_ref=NodeId("sink_node"), owner_local_key=PortId("left"))),
+                Port(port_ref=PortRef(owner_ref=NodeId("sink_node"), owner_local_key=PortId("right"))),
+                Port(port_ref=PortRef(owner_ref=NodeId("sink_node"), owner_local_key=PortId("bottom"))),
+            ),
+            render_profile=RenderProfileRef(profile_key=DEFAULT_AND_KNOT_PROFILE_KEY),
+        )
+        runtime_objects = RuntimeObjectSet(
+            nodes=(sink_node,),
+            junctions=(
+                left_junction,
+                replace(right_junction, occupying_node_id=sink_node.node_id, is_active=False),
+            ),
+        )
+        geometry = V1JunctionGeometryBuildFeasibility(
+            visual_profile_catalog=build_v1_core_visual_profile_catalog(
+                skill_frame_top_port_id=PortId("top"),
+                skill_frame_bottom_port_id=PortId("bottom"),
+                and_knot_top_port_id=PortId("top"),
+                and_knot_left_port_id=PortId("left"),
+                and_knot_right_port_id=PortId("right"),
+                and_knot_bottom_port_id=PortId("bottom"),
+            ),
+        )
+
+        candidates = geometry(
+            runtime_objects=runtime_objects,
+            frontier_context=FrontierContext(
+                current_object_ref=left_junction.junction_id,
+                current_port_ref=PortRef(
+                    owner_ref=left_junction.junction_id,
+                    owner_local_key=PortId("east"),
+                ),
+            ),
+            neighbor_relation=NeighborRelation(
+                from_object_ref=left_junction.junction_id,
+                to_object_ref=sink_node.node_id,
+                relation_kind=CROSS_OBJECT_BOUNDARY_RELATION_KIND,
+                approach_direction="east",
+            ),
+        )
+
+        self.assertEqual(
+            (
+                PortRef(owner_ref=sink_node.node_id, owner_local_key=PortId("left")),
+            ),
+            candidates,
+        )
+
+    def test_node_to_node_geometry_returns_opposite_boundary_node_port(self) -> None:
+        grid = build_minimum_active_grid(
+            default_x_rail_ids=("x0", "x1"),
+            authored_tier_rail_ids=("tier_0",),
+        )
+        left_junction, right_junction = build_runtime_junctions_for_active_grid(grid)
+        source_node = RuntimeNode(
+            node_id=NodeId("source_node"),
+            current_junction_id=left_junction.junction_id,
+            ports=(
+                Port(port_ref=PortRef(owner_ref=NodeId("source_node"), owner_local_key=PortId("top"))),
+                Port(port_ref=PortRef(owner_ref=NodeId("source_node"), owner_local_key=PortId("left"))),
+                Port(port_ref=PortRef(owner_ref=NodeId("source_node"), owner_local_key=PortId("right"))),
+                Port(port_ref=PortRef(owner_ref=NodeId("source_node"), owner_local_key=PortId("bottom"))),
+            ),
+            render_profile=RenderProfileRef(profile_key=DEFAULT_AND_KNOT_PROFILE_KEY),
+        )
+        sink_node = RuntimeNode(
+            node_id=NodeId("sink_node"),
+            current_junction_id=right_junction.junction_id,
+            ports=(
+                Port(port_ref=PortRef(owner_ref=NodeId("sink_node"), owner_local_key=PortId("top"))),
+                Port(port_ref=PortRef(owner_ref=NodeId("sink_node"), owner_local_key=PortId("left"))),
+                Port(port_ref=PortRef(owner_ref=NodeId("sink_node"), owner_local_key=PortId("right"))),
+                Port(port_ref=PortRef(owner_ref=NodeId("sink_node"), owner_local_key=PortId("bottom"))),
+            ),
+            render_profile=RenderProfileRef(profile_key=DEFAULT_AND_KNOT_PROFILE_KEY),
+        )
+        runtime_objects = RuntimeObjectSet(
+            nodes=(source_node, sink_node),
+            junctions=(
+                replace(left_junction, occupying_node_id=source_node.node_id, is_active=False),
+                replace(right_junction, occupying_node_id=sink_node.node_id, is_active=False),
+            ),
+        )
+        geometry = V1JunctionGeometryBuildFeasibility(
+            visual_profile_catalog=build_v1_core_visual_profile_catalog(
+                skill_frame_top_port_id=PortId("top"),
+                skill_frame_bottom_port_id=PortId("bottom"),
+                and_knot_top_port_id=PortId("top"),
+                and_knot_left_port_id=PortId("left"),
+                and_knot_right_port_id=PortId("right"),
+                and_knot_bottom_port_id=PortId("bottom"),
+            ),
+        )
+
+        candidates = geometry(
+            runtime_objects=runtime_objects,
+            frontier_context=FrontierContext(
+                current_object_ref=source_node.node_id,
+                current_port_ref=PortRef(
+                    owner_ref=source_node.node_id,
+                    owner_local_key=PortId("right"),
+                ),
+            ),
+            neighbor_relation=NeighborRelation(
+                from_object_ref=source_node.node_id,
+                to_object_ref=sink_node.node_id,
+                relation_kind=CROSS_OBJECT_BOUNDARY_RELATION_KIND,
+                approach_direction="east",
+            ),
+        )
+
+        self.assertEqual(
+            (
+                PortRef(owner_ref=sink_node.node_id, owner_local_key=PortId("left")),
             ),
             candidates,
         )
@@ -902,6 +1280,61 @@ class SolverTypesTests(unittest.TestCase):
             candidate_port_ref=PortRef(
                 owner_ref=NodeId("sink_node"),
                 owner_local_key=PortId("in"),
+            ),
+        )
+
+        self.assertFalse(is_eligible)
+
+    def test_intermediate_non_source_sink_node_candidate_fails_eligibility(self) -> None:
+        junction = build_runtime_junctions_for_active_grid(
+            build_minimum_active_grid(
+                default_x_rail_ids=("x0",),
+                authored_tier_rail_ids=("tier_0",),
+            )
+        )[0]
+        intermediate_node = RuntimeNode(
+            node_id=NodeId("middle_node"),
+            ports=(
+                Port(
+                    port_ref=PortRef(
+                        owner_ref=NodeId("middle_node"),
+                        owner_local_key=PortId("in_left"),
+                    ),
+                ),
+            ),
+        )
+        runtime_objects = RuntimeObjectSet(
+            nodes=(intermediate_node,),
+            junctions=(junction,),
+        )
+        eligibility = V1CandidateEligibility()
+        route_requirement = RouteRequirement(
+            requirement_id="req::a",
+            source_object_ref=NodeId("source_node"),
+            sink_object_ref=NodeId("sink_node"),
+            requirement_kind="flow",
+        )
+
+        is_eligible = eligibility(
+            runtime_objects=runtime_objects,
+            schema_view=StaticRouteRequirementSchemaView(),
+            frontier_context=FrontierContext(
+                current_object_ref=junction.junction_id,
+                current_port_ref=PortRef(
+                    owner_ref=junction.junction_id,
+                    owner_local_key=PortId("east"),
+                ),
+            ),
+            neighbor_relation=NeighborRelation(
+                from_object_ref=junction.junction_id,
+                to_object_ref=intermediate_node.node_id,
+                relation_kind=CROSS_OBJECT_BOUNDARY_RELATION_KIND,
+                approach_direction="east",
+            ),
+            route_requirement=route_requirement,
+            candidate_port_ref=PortRef(
+                owner_ref=intermediate_node.node_id,
+                owner_local_key=PortId("in_left"),
             ),
         )
 
@@ -1609,6 +2042,14 @@ class SolverTypesTests(unittest.TestCase):
             definition.ports[0].render_profile.profile_key,
         )
 
+    def test_port_definition_default_capacity_is_unbounded(self) -> None:
+        definition = PortDefinition(
+            port_id=PortId("east_out"),
+            orientation="east",
+        )
+
+        self.assertIsNone(definition.capacity)
+
     def test_valid_internal_edge(self) -> None:
         owner_ref = NodeId("node_a")
         edge = PortEdge(
@@ -1798,6 +2239,115 @@ class SolverTypesTests(unittest.TestCase):
 
         self.assertTrue(is_port_ref_usable(active_objects, port_ref))
         self.assertFalse(is_port_ref_usable(inactive_objects, port_ref))
+
+    def test_full_port_remains_usable_but_rejects_new_attachment(self) -> None:
+        left_port_ref = PortRef(
+            owner_ref=NodeId("node_a"),
+            owner_local_key=PortId("east"),
+        )
+        right_port_ref = PortRef(
+            owner_ref=NodeId("node_b"),
+            owner_local_key=PortId("west"),
+        )
+        objects = RuntimeObjectSet(
+            nodes=(
+                RuntimeNode(
+                    node_id=NodeId("node_a"),
+                    ports=(Port(port_ref=left_port_ref, capacity=1),),
+                ),
+                RuntimeNode(
+                    node_id=NodeId("node_b"),
+                    ports=(Port(port_ref=right_port_ref),),
+                ),
+            ),
+            edges=(
+                PortEdge(
+                    edge_id=PortEdgeId("edge::a"),
+                    port_ref_a=left_port_ref,
+                    port_ref_b=right_port_ref,
+                    scope="external",
+                ),
+            ),
+        )
+
+        self.assertTrue(is_port_ref_usable(objects, left_port_ref))
+        self.assertEqual(1, direct_attachment_count(objects, left_port_ref))
+        self.assertFalse(can_port_ref_accept_new_attachment(objects, left_port_ref))
+
+    def test_full_candidate_port_fails_eligibility(self) -> None:
+        junction = build_runtime_junctions_for_active_grid(
+            build_minimum_active_grid(
+                default_x_rail_ids=("x0",),
+                authored_tier_rail_ids=("tier_0",),
+            )
+        )[0]
+        sink_port_ref = PortRef(
+            owner_ref=NodeId("sink_node"),
+            owner_local_key=PortId("in"),
+        )
+        existing_port_ref = PortRef(
+            owner_ref=NodeId("existing_node"),
+            owner_local_key=PortId("out"),
+        )
+        runtime_objects = RuntimeObjectSet(
+            nodes=(
+                RuntimeNode(
+                    node_id=NodeId("sink_node"),
+                    ports=(Port(port_ref=sink_port_ref, capacity=1),),
+                ),
+                RuntimeNode(
+                    node_id=NodeId("existing_node"),
+                    ports=(Port(port_ref=existing_port_ref),),
+                ),
+            ),
+            junctions=(junction,),
+            edges=(
+                PortEdge(
+                    edge_id=PortEdgeId("edge::existing_to_sink"),
+                    port_ref_a=existing_port_ref,
+                    port_ref_b=sink_port_ref,
+                    scope="external",
+                ),
+            ),
+        )
+        eligibility = V1CandidateEligibility()
+        schema_view = StaticRouteRequirementSchemaView(
+            sink_allowances=(
+                RouteRequirementPortAllowance(
+                    object_ref=NodeId("sink_node"),
+                    requirement_kind="flow",
+                    port_local_keys=(PortId("in"),),
+                ),
+            ),
+        )
+        route_requirement = RouteRequirement(
+            requirement_id="req::a",
+            source_object_ref=NodeId("source_node"),
+            sink_object_ref=NodeId("sink_node"),
+            requirement_kind="flow",
+        )
+
+        is_eligible = eligibility(
+            runtime_objects=runtime_objects,
+            schema_view=schema_view,
+            frontier_context=FrontierContext(
+                current_object_ref=junction.junction_id,
+                current_port_ref=PortRef(
+                    owner_ref=junction.junction_id,
+                    owner_local_key=PortId("east"),
+                ),
+            ),
+            neighbor_relation=NeighborRelation(
+                from_object_ref=junction.junction_id,
+                to_object_ref=NodeId("sink_node"),
+                relation_kind="neighbor",
+                approach_direction="east",
+            ),
+            route_requirement=route_requirement,
+            candidate_port_ref=sink_port_ref,
+        )
+
+        self.assertFalse(is_eligible)
 
     def test_no_path_object_is_introduced(self) -> None:
         self.assertFalse(hasattr(solver_runtime, "Path"))

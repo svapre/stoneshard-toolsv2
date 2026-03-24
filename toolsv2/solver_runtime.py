@@ -39,6 +39,7 @@ class Port:
     port_ref: PortRef
     definition_port_id: PortId | None = None
     is_active: bool = True
+    capacity: int | None = None
     render_profile: RenderProfileRef = field(default_factory=RenderProfileRef)
     attributes: Attributes = ()
 
@@ -47,6 +48,8 @@ class Port:
             object.__setattr__(self, "definition_port_id", self.port_ref.owner_local_key)
         if not isinstance(self.is_active, bool):
             raise TypeError("Port.is_active must be bool")
+        if self.capacity is not None and self.capacity < 0:
+            raise ValueError("Port.capacity must be non-negative")
         if not isinstance(self.render_profile, RenderProfileRef):
             raise TypeError("Port.render_profile must be RenderProfileRef")
         _ensure_unique_keys("Port.attributes", self.attributes)
@@ -261,6 +264,35 @@ def is_port_ref_usable(objects: "RuntimeObjectSet", port_ref: PortRef) -> bool:
     if port is None:
         raise KeyError(f"Unknown port_ref: {port_ref}")
     return port.is_active and is_object_ref_active(objects, port_ref.owner_ref)
+
+
+def direct_attachment_count(objects: "RuntimeObjectSet", port_ref: PortRef) -> int:
+    """Return the number of currently active built edges attached to one port."""
+
+    _ = _port_lookup(objects)[port_ref]
+    return sum(
+        1
+        for edge in objects.edges
+        if edge.is_active and (edge.port_ref_a == port_ref or edge.port_ref_b == port_ref)
+    )
+
+
+def can_port_ref_accept_new_attachment(
+    objects: "RuntimeObjectSet",
+    port_ref: PortRef,
+    *,
+    additional_attachments: int = 1,
+) -> bool:
+    """Return whether one port may accept additional direct built attachments."""
+
+    if additional_attachments < 0:
+        raise ValueError("additional_attachments must be non-negative")
+    port = _port_lookup(objects).get(port_ref)
+    if port is None:
+        raise KeyError(f"Unknown port_ref: {port_ref}")
+    if port.capacity is None:
+        return True
+    return direct_attachment_count(objects, port_ref) + additional_attachments <= port.capacity
 
 
 def is_edge_id_usable(objects: "RuntimeObjectSet", edge_id: PortEdgeId) -> bool:

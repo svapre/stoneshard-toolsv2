@@ -1,15 +1,16 @@
 # Stoneshard Toolsv2
 
-Standalone repository for the current locked `toolsv2` solver/runtime stack.
+Standalone repository for the current `toolsv2` solver, layout, and base-render stack.
 
 This repo intentionally includes only:
 - the current `toolsv2` source modules
 - the current `toolsv2/tests` suite
 - the current contract/design docs inside `toolsv2`
+- the current source art primitives, examples, and extractor inputs/reports used by the maintained toolsv2 flow
 
 This repo intentionally excludes:
 - legacy prototype code
-- sprites, art assets, logs, examples, and local extraction tools
+- logs, caches, generated renders, and extractor build byproducts
 - anything outside the current `toolsv2` project boundary
 
 ## Setup
@@ -41,6 +42,14 @@ On Unix-like systems, use `.venv/bin/python` instead.
 ```bash
 python -m unittest discover -s toolsv2/tests -v
 ```
+
+## Run Example
+
+```bash
+python -m toolsv2.run_branch toolsv2/examples/test_skill_tree.json
+```
+
+By default this writes the base render to `toolsv2/output/<tree_id>.png`.
 
 ## CI
 
