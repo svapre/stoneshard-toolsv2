@@ -30,6 +30,8 @@ from toolsv2.production_family_catalog import (
 )
 from toolsv2.solver_common import LogicalYRailId, NodeId, PortId, RoutingPolicy
 
+_V1_MAX_MEDIATED_BAND_DYNAMIC_RAILS = 2
+
 
 @dataclass(frozen=True, slots=True)
 class SkillTreeSkillSpec:
@@ -156,6 +158,12 @@ def authored_tier_rail_ids_for_tree(
     return tuple(LogicalYRailId(f"tier_{index}") for index in range(max_tier))
 
 
+def _tier_to_authored_rail_id(tier: int) -> LogicalYRailId:
+    if tier < 1:
+        raise ValueError("tier must be at least 1")
+    return LogicalYRailId(f"tier_{tier - 1}")
+
+
 def _group_skill_ids_by_tier(
     tree: SkillTreeRequirementSpec,
 ) -> dict[int, tuple[str, ...]]:
@@ -220,6 +228,26 @@ def _background_asset_ref(background_base: str | None) -> str | None:
     return f"art/source/background/base/{background_base}"
 
 
+def _mediated_band_allowed_y_rail_ids(
+    *,
+    source_tier: int,
+    sink_tier: int,
+    dynamic_rail_count: int = _V1_MAX_MEDIATED_BAND_DYNAMIC_RAILS,
+) -> tuple[LogicalYRailId, ...]:
+    if sink_tier != source_tier + 1:
+        raise ValueError(
+            "Current v1 requirement compiler supports implied AND gates only between adjacent tiers"
+        )
+    if dynamic_rail_count < 1:
+        raise ValueError("dynamic_rail_count must be at least 1")
+    upper_authored_rail_id = _tier_to_authored_rail_id(source_tier)
+    lower_authored_rail_id = _tier_to_authored_rail_id(sink_tier)
+    return tuple(
+        LogicalYRailId(f"dyn::{upper_authored_rail_id}::{lower_authored_rail_id}::{index}")
+        for index in range(dynamic_rail_count)
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class CompiledSkillTreeContent:
     """Compiled solver-facing content plus simple runner metadata."""
@@ -274,11 +302,24 @@ def compile_v1_skill_tree_to_graph_content(
 
     for (sink_tier, source_ids), sink_ids in sorted(grouped_multi_input_requirements.items()):
         ordered_source_ids = _ordered_gate_sources(source_ids, skills_by_id=skills_by_id)
+        source_tiers = {
+            skills_by_id[source_id].tier
+            for source_id in ordered_source_ids
+        }
+        if len(source_tiers) != 1:
+            raise ValueError(
+                "Current v1 requirement compiler supports implied AND gates only for one source tier per group"
+            )
+        source_tier = next(iter(source_tiers))
         gate_id = NodeId(f"node__req__tier{sink_tier}__{'__'.join(ordered_source_ids)}")
         nodes.append(
             GraphContentNode(
                 node_id=gate_id,
                 kind=V1_AND_KNOT_KIND,
+                allowed_y_rail_ids=_mediated_band_allowed_y_rail_ids(
+                    source_tier=source_tier,
+                    sink_tier=sink_tier,
+                ),
             )
         )
         port_map = _and_gate_input_port_map(ordered_source_ids)

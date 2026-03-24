@@ -91,6 +91,7 @@
 
 - `OR` does not require a separate structural node. All required inputs connect directly to the target.
 - `AND` is represented as an implied node, but it does not automatically add a new y rail.
+- Current content-side implied `AND` compilation constrains the gate to the inter-tier band it mediates; that band-local y allowance is not a solver-core special case.
 - A dynamic/implied node must first try to fit on the current active grid.
 - New rails are added only if the current grid cannot support legal placement or legal routing.
 
@@ -138,6 +139,7 @@ Clarifications:
 - `Dom_x` and `Dom_y` may be used internally as construction helpers only.
 - Tier/authored nodes have fixed `Dom_y`.
 - Dynamic nodes use currently active logical y rails that are allowed for them.
+- Current content-side implied `AND` nodes use only the conventional dynamic rail ids for their mediated adjacent-tier band; they do not float across unrelated authored tiers.
 - Current ordered same-row raw-domain construction uses row order plus the explicitly supplied minimum same-row spacing hard constraint on the current active x rails.
 - If those hard constraints leave no legal current-grid ordered-row assignment, the resulting domains are empty and the current grid is contradictory for that placement attempt.
 - Domains are reduced by proof only.
@@ -292,6 +294,8 @@ Clarifications:
   - load the current requirement-spec JSON shape
   - compile it into explicit graph content
   - run the current default estimated full solve loop
+  - demand a single mid-band rail for current implied single-sink mediated `AND` gates and a split pair for current same-band multi-sink fanout gates
+  - upgrade only already-demanded bands through its default expansion helper instead of widening unrelated bands
   - save the base PNG with default output-path behavior
 
 ## 4. Frozen Solve Pipeline

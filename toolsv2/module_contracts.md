@@ -72,6 +72,7 @@ Status:
 Responsibilities:
 - Read explicit graph content plus one explicit layout profile and one explicit authored-tier ordering.
 - Derive only provable lower-bound initial grid demands from content.
+- Support reusable demand rules for current content-side implied-band nodes without pushing those node-family rules into solver core.
 - Keep content-driven initial band-layout requirements separate from the full solve loop.
 - Apply profile-owned band-layout patterns to build the initial active grid without leaking profile heuristics into solver core.
 - Allow reusable injected estimation rules so other layout families can tailor lower-bound logic without rewriting the full orchestrator.
@@ -193,6 +194,7 @@ Responsibilities:
 - Validate requirement-spec structure and dependency legality.
 - Compile that higher-level requirement spec into explicit current `GraphContentModel`.
 - Insert current implied `AND` nodes as explicit graph content where multi-input requirement groups require them.
+- Constrain implied `AND` nodes to the inter-tier band they mediate by emitting band-local `allowed_y_rail_ids`.
 - Keep requirement-json parsing and graph-content compilation separate from generic solver/runtime layers.
 
 Forbidden assumptions:
@@ -515,6 +517,7 @@ Responsibilities:
 - Load the current requirement-spec JSON through `skill_tree_requirements.py`.
 - Compile it into explicit current graph content.
 - Run the current estimated full solve loop with built-in default layout/expansion settings.
+- Keep the built-in default expansion policy targeted to already-demanded bands instead of globally widening unrelated bands.
 - Render and save the base PNG with short default command-line usage.
 
 Forbidden assumptions:

@@ -7,9 +7,11 @@ from toolsv2.graph_content import GraphContentModel, GraphContentNode, GraphCont
 from toolsv2.layout_estimation import (
     V1RuleBasedLayoutDemandEstimator,
     build_same_band_multi_sink_split_pattern_rule,
+    build_single_sink_mediated_band_rule,
 )
 from toolsv2.layout_profiles import (
     V1_VANILLA_FOUR_TIER_SPLIT_PAIR_BAND_LAYOUT_ID,
+    V1_VANILLA_SINGLE_MID_BAND_LAYOUT_ID,
     build_v1_vanilla_skill_tree_layout_profile,
 )
 from toolsv2.production_node_definitions import V1_AND_KNOT_KIND, V1_SKILL_FRAME_KIND
@@ -137,6 +139,65 @@ class LayoutEstimationTests(unittest.TestCase):
         }
         self.assertEqual(Fraction(3, 7), dynamic_ranks["dyn::tier_0::tier_1::0"])
         self.assertEqual(Fraction(4, 7), dynamic_ranks["dyn::tier_0::tier_1::1"])
+
+    def test_single_sink_mediated_band_rule_demands_initial_mid_rail(self) -> None:
+        estimator = V1RuleBasedLayoutDemandEstimator(
+            layout_profile=build_v1_vanilla_skill_tree_layout_profile(),
+            authored_tier_rail_ids=(LogicalYRailId("tier_0"), LogicalYRailId("tier_1")),
+            band_layout_demand_rules=(
+                build_single_sink_mediated_band_rule(
+                    pattern_id=V1_VANILLA_SINGLE_MID_BAND_LAYOUT_ID,
+                ),
+            ),
+        )
+
+        estimate = estimator(
+            GraphContentModel(
+                routing_policy=_policy(),
+                nodes=(
+                    GraphContentNode(
+                        node_id=NodeId("input_a"),
+                        kind=V1_SKILL_FRAME_KIND,
+                        authored_tier_y_rail_id=LogicalYRailId("tier_0"),
+                    ),
+                    GraphContentNode(
+                        node_id=NodeId("and_0"),
+                        kind=V1_AND_KNOT_KIND,
+                    ),
+                    GraphContentNode(
+                        node_id=NodeId("sink_a"),
+                        kind=V1_SKILL_FRAME_KIND,
+                        authored_tier_y_rail_id=LogicalYRailId("tier_1"),
+                    ),
+                ),
+                route_requirements=(
+                    GraphContentRouteRequirement(
+                        requirement_id="req::input_a_to_and",
+                        source_node_id=NodeId("input_a"),
+                        sink_node_id=NodeId("and_0"),
+                        requirement_kind="flow",
+                        source_port_ids=(PortId("bottom"),),
+                        sink_port_ids=(PortId("top"),),
+                    ),
+                    GraphContentRouteRequirement(
+                        requirement_id="req::and_to_sink_a",
+                        source_node_id=NodeId("and_0"),
+                        sink_node_id=NodeId("sink_a"),
+                        requirement_kind="flow",
+                        source_port_ids=(PortId("bottom"),),
+                        sink_port_ids=(PortId("top"),),
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(1, len(estimate.band_layout_demands))
+        demand = estimate.band_layout_demands[0]
+        self.assertEqual(V1_VANILLA_SINGLE_MID_BAND_LAYOUT_ID, demand.pattern_id)
+        self.assertEqual(
+            ("tier_0", "dyn::tier_0::tier_1::0", "tier_1"),
+            tuple(str(rail.rail_id) for rail in estimate.initial_grid.y_rails),
+        )
 
 
 if __name__ == "__main__":
