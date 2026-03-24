@@ -2,8 +2,9 @@
 
 This module validates a tentative route plan against the current snapshot,
 materializes new built edges, and returns a new snapshot without mutating the
-original. It does not search for alternatives, own placement backtracking, or
-implement refinement.
+original. It owns only local validate-and-apply behavior for one tentative
+plan. Source-owned route-tree preservation/cross-source leakage checks live in
+the orchestration layer above it.
 """
 
 from __future__ import annotations
@@ -57,56 +58,6 @@ def _edge_lookup(state: PortGraphState) -> dict[PortEdgeId, PortEdge]:
 def _port_pair_key(port_ref_a: PortRef, port_ref_b: PortRef) -> tuple[PortRef, PortRef]:
     ordered = tuple(sorted((port_ref_a, port_ref_b), key=_port_ref_sort_key))
     return ordered[0], ordered[1]
-
-
-def _existing_arrival_entry_contexts(state: PortGraphState) -> tuple[EntryContext, ...]:
-    edge_lookup = _edge_lookup(state)
-    contexts: set[EntryContext] = set()
-
-    for edge_id in state.graph.edge_ids:
-        edge = edge_lookup.get(edge_id)
-        if edge is None:
-            continue
-        if not is_edge_id_usable(state.objects, edge.edge_id):
-            continue
-        if edge.traversal_mode in ("bidirectional", "a_to_b"):
-            contexts.add(
-                EntryContext(
-                    current_port_ref=edge.port_ref_b,
-                    incoming_edge_id=edge.edge_id,
-                )
-            )
-        if edge.traversal_mode in ("bidirectional", "b_to_a"):
-            contexts.add(
-                EntryContext(
-                    current_port_ref=edge.port_ref_a,
-                    incoming_edge_id=edge.edge_id,
-                )
-            )
-
-    return tuple(sorted(contexts, key=_entry_context_sort_key))
-
-
-def _reachable_entry_contexts(
-    state: PortGraphState,
-    start_entry_context: EntryContext,
-) -> frozenset[EntryContext]:
-    if not is_entry_context_usable(state, start_entry_context):
-        return frozenset()
-
-    seen = {start_entry_context}
-    queue = [start_entry_context]
-
-    while queue:
-        current_entry_context = queue.pop(0)
-        for next_entry_context in directly_reachable_next_entry_contexts(state, current_entry_context):
-            if next_entry_context in seen:
-                continue
-            seen.add(next_entry_context)
-            queue.append(next_entry_context)
-
-    seen.remove(start_entry_context)
-    return frozenset(seen)
 
 
 def _make_edge_id(route_plan: TentativeRoutePlan, step_index: int) -> PortEdgeId:
@@ -310,13 +261,6 @@ class V1RouteCommit:
 
         if not _replay_route_plan_in_state(post_commit_state, route_plan, created_edge_ids_by_step_index):
             return CommitResult(status="failure_snapshot")
-
-        for existing_entry_context in _existing_arrival_entry_contexts(current_state):
-            if _reachable_entry_contexts(current_state, existing_entry_context) != _reachable_entry_contexts(
-                post_commit_state,
-                existing_entry_context,
-            ):
-                return CommitResult(status="failure_snapshot")
 
         return CommitResult(
             status="success",

@@ -103,6 +103,7 @@ class RouterTests(unittest.TestCase):
         )
         self.assertEqual(1, len(result.route_plan.steps))
         self.assertEqual("tentative_connection", result.route_plan.steps[0].step_kind)
+        self.assertEqual("a_to_b", result.route_plan.steps[0].new_edge_traversal_mode)
 
     def test_router_traverses_existing_bidirectional_edges_via_entry_context(self) -> None:
         source_port_ref = PortRef(
@@ -269,6 +270,9 @@ class RouterTests(unittest.TestCase):
         self.assertTrue(
             all(step.step_kind == "tentative_connection" for step in result.route_plan.steps)
         )
+        self.assertTrue(
+            all(step.new_edge_traversal_mode == "a_to_b" for step in result.route_plan.steps)
+        )
 
     def test_router_can_connect_adjacent_occupied_nodes_directly_across_shared_boundary(self) -> None:
         grid = build_minimum_active_grid(
@@ -349,6 +353,7 @@ class RouterTests(unittest.TestCase):
         )
         self.assertEqual(1, len(result.route_plan.steps))
         self.assertEqual("tentative_connection", result.route_plan.steps[0].step_kind)
+        self.assertEqual("a_to_b", result.route_plan.steps[0].new_edge_traversal_mode)
 
     def test_router_fails_cleanly_when_no_valid_sink_port_is_reachable(self) -> None:
         source_port_ref = PortRef(
@@ -593,6 +598,7 @@ class RouterTests(unittest.TestCase):
         self.assertEqual((), state.objects.edges)
         self.assertEqual("tentative_connection", result.route_plan.steps[0].step_kind)
         self.assertIsNone(result.route_plan.steps[0].via_edge_id)
+        self.assertEqual("a_to_b", result.route_plan.steps[0].new_edge_traversal_mode)
 
 
 if __name__ == "__main__":

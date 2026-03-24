@@ -185,12 +185,19 @@ Clarifications:
 
 - Exact routing begins only after all nodes are placed.
 - Routing starts from the adjacent junction of the chosen source or output port, not from the node center.
+- Current exact-routing orchestration is source-owned:
+  - requirements are grouped by source object
+  - first source appearance is preserved
+  - original in-source requirement order is preserved
 - A successful exact route may update:
   - node-port usage
   - non-node junction local connections
   - engaged or locked entries
   - terminal attachments
-- A newly committed route may not widen or modify an already engaged entry's exit set.
+- Newly committed tentative connections are currently materialized in route-traversal direction (`a_to_b`) by default.
+- Additive branching inside the current source-owned route tree is legal.
+- A commit for the current source must not create or modify reachable built state for a different source.
+- The current source may reach only sinks explicitly declared for that source; foreign node ports remain illegal.
 
 ### 3.11 Refinement phase
 

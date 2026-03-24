@@ -387,13 +387,13 @@ Responsibilities:
 - Materialize new built `PortEdge` objects from tentative route steps.
 - Enforce local direct-attachment capacity constraints when materializing new edges.
 - Return a new runtime snapshot on success without mutating the input snapshot in place.
-- Perform the current conservative v1 post-update reachability validation tactic over current entry contexts.
+- Keep validation local to the current tentative plan and current snapshot.
 
 Forbidden assumptions:
 - No in-place mutation.
 - No alternate-route search.
 - No placement backtracking or refinement.
-- No weakening of validation to only the new route's own source contexts.
+- No source-owned multi-requirement correctness policy.
 
 ### `routing_policy.py`
 
@@ -458,18 +458,20 @@ Forbidden assumptions:
 ### `route_orchestrator.py`
 
 Status:
-- Implemented as a thin multi-requirement orchestrator on one fixed runtime snapshot.
+- Implemented as the thin source-grouped routing orchestrator on one fixed runtime snapshot.
 
 Responsibilities:
-- Route and commit requirements sequentially in explicit order.
+- Group requirements by `source_object_ref`, preserving first source appearance and original in-source order.
+- Route and commit one source-owned requirement tree at a time on immutable snapshots.
+- Allow additive fanout inside the currently committed source-owned tree.
+- Reject cross-source reachability expansion and reject current-source reachability to undeclared foreign node ports.
 - Thread immutable snapshots forward after each successful commit.
 - Stop on first failure and return snapshot-scoped failure with completed prefix information.
 
 Forbidden assumptions:
-- No requirement reordering.
 - No alternate-route retries.
 - No backtracking across committed requirements.
-- No extra correctness logic beyond router and commit.
+- No placement mutation or refinement.
 
 ### `placement_orchestrator.py`
 
