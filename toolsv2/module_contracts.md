@@ -462,9 +462,10 @@ Status:
 
 Responsibilities:
 - Group requirements by `source_object_ref`, preserving first source appearance and original in-source order.
-- Route and commit one source-owned requirement tree at a time on immutable snapshots.
-- Allow additive fanout inside the currently committed source-owned tree.
-- Reject cross-source reachability expansion and reject current-source reachability to undeclared foreign node ports.
+- Route and commit one source-owned directed flow DAG at a time on immutable snapshots.
+- Keep physical edge traversal capability separate from source-owned flow semantics.
+- Allow additive fanout and suffix reuse inside the current source-owned flow DAG when the result remains acyclic.
+- Reject current-source reachability to undeclared foreign node ports.
 - Thread immutable snapshots forward after each successful commit.
 - Stop on first failure and return snapshot-scoped failure with completed prefix information.
 

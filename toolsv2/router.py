@@ -231,7 +231,6 @@ def _build_local_candidate_steps(
                         current_port_ref=candidate_port_ref,
                         incoming_edge_id=None,
                     ),
-                    new_edge_traversal_mode="a_to_b",
                 )
             )
 
