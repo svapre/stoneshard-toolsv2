@@ -12,7 +12,7 @@ from toolsv2.geometry import V1JunctionGeometryBuildFeasibility
 from toolsv2.profile import build_minimum_active_grid
 from toolsv2.route_commit import CommitResult, V1RouteCommit
 from toolsv2.route_orchestrator import V1RouteOrchestrator
-from toolsv2.router import RouterResult, TentativeRoutePlan, V1Router
+from toolsv2.router import RouterResult, TentativeRoutePlan, TentativeRouteStep, V1Router
 from toolsv2.solver_types import (
     EntryContext,
     Junction,
@@ -98,6 +98,59 @@ class RouteOrchestratorTests(unittest.TestCase):
             ),
             steps=(),
             reached_sink_port_ref=sink_port_ref,
+        )
+
+    def _make_direct_plan(
+        self,
+        route_requirement_id: str,
+        *,
+        start_port_ref: PortRef,
+        step_specs: tuple[tuple[str, PortRef], ...],
+        reached_sink_port_ref: PortRef,
+    ) -> TentativeRoutePlan:
+        steps: list[TentativeRouteStep] = []
+        current_port_ref = start_port_ref
+        for step_index, (step_kind, next_port_ref) in enumerate(step_specs):
+            if step_kind == "built_edge":
+                edge_id = PortEdgeId(f"edge::{route_requirement_id}::{step_index}")
+                steps.append(
+                    TentativeRouteStep(
+                        step_kind="built_edge",
+                        from_entry_context=EntryContext(
+                            current_port_ref=current_port_ref,
+                            incoming_edge_id=None,
+                        ),
+                        to_entry_context=EntryContext(
+                            current_port_ref=next_port_ref,
+                            incoming_edge_id=edge_id,
+                        ),
+                        via_edge_id=edge_id,
+                    )
+                )
+            else:
+                steps.append(
+                    TentativeRouteStep(
+                        step_kind="tentative_connection",
+                        from_entry_context=EntryContext(
+                            current_port_ref=current_port_ref,
+                            incoming_edge_id=None,
+                        ),
+                        to_entry_context=EntryContext(
+                            current_port_ref=next_port_ref,
+                            incoming_edge_id=None,
+                        ),
+                    )
+                )
+            current_port_ref = next_port_ref
+
+        return TentativeRoutePlan(
+            route_requirement_id=route_requirement_id,
+            start_entry_context=EntryContext(
+                current_port_ref=start_port_ref,
+                incoming_edge_id=None,
+            ),
+            steps=tuple(steps),
+            reached_sink_port_ref=reached_sink_port_ref,
         )
 
     def _make_runtime_state(
@@ -207,7 +260,7 @@ class RouteOrchestratorTests(unittest.TestCase):
         orchestrator = V1RouteOrchestrator(
             router=router,
             commit=commit,
-            source_reachability_validator=lambda *_: True,
+            source_flow_validator=lambda *_: True,
         )
 
         result = orchestrator(initial_state, object(), route_requirements)
@@ -244,7 +297,7 @@ class RouteOrchestratorTests(unittest.TestCase):
         orchestrator = V1RouteOrchestrator(
             router=router,
             commit=commit,
-            source_reachability_validator=lambda *_: True,
+            source_flow_validator=lambda *_: True,
         )
 
         result = orchestrator(initial_state, object(), route_requirements)
@@ -281,7 +334,7 @@ class RouteOrchestratorTests(unittest.TestCase):
         result = V1RouteOrchestrator(
             router=router,
             commit=commit,
-            source_reachability_validator=lambda *_: True,
+            source_flow_validator=lambda *_: True,
         )(
             initial_state,
             object(),
@@ -314,7 +367,7 @@ class RouteOrchestratorTests(unittest.TestCase):
         orchestrator = V1RouteOrchestrator(
             router=router,
             commit=commit,
-            source_reachability_validator=lambda *_: True,
+            source_flow_validator=lambda *_: True,
         )
 
         result = orchestrator(initial_state, object(), route_requirements)
@@ -367,7 +420,7 @@ class RouteOrchestratorTests(unittest.TestCase):
         result = V1RouteOrchestrator(
             router=router,
             commit=commit,
-            source_reachability_validator=lambda *_: True,
+            source_flow_validator=lambda *_: True,
         )(
             initial_state,
             object(),
@@ -427,7 +480,7 @@ class RouteOrchestratorTests(unittest.TestCase):
                     port_ref_a=source_port_ref,
                     port_ref_b=junction_b_west,
                     scope="external",
-                    traversal_mode="a_to_b",
+                    traversal_mode="bidirectional",
                 ),
             ),
         )
@@ -440,7 +493,7 @@ class RouteOrchestratorTests(unittest.TestCase):
                     port_ref_a=source_port_ref,
                     port_ref_b=junction_b_west,
                     scope="external",
-                    traversal_mode="a_to_b",
+                    traversal_mode="bidirectional",
                 ),
                 PortEdge(
                     edge_id=PortEdgeId("edge::b_to_c"),
@@ -478,8 +531,27 @@ class RouteOrchestratorTests(unittest.TestCase):
         )
         router = _StubRouter(
             responses=(
-                RouterResult(status="success", route_plan=self._make_stub_plan("req::a_to_b")),
-                RouterResult(status="success", route_plan=self._make_stub_plan("req::a_to_c")),
+                RouterResult(
+                    status="success",
+                    route_plan=self._make_direct_plan(
+                        "req::a_to_b",
+                        start_port_ref=source_port_ref,
+                        step_specs=(("tentative_connection", junction_b_west),),
+                        reached_sink_port_ref=junction_b_west,
+                    ),
+                ),
+                RouterResult(
+                    status="success",
+                    route_plan=self._make_direct_plan(
+                        "req::a_to_c",
+                        start_port_ref=source_port_ref,
+                        step_specs=(
+                            ("built_edge", junction_b_west),
+                            ("tentative_connection", junction_c_west),
+                        ),
+                        reached_sink_port_ref=junction_c_west,
+                    ),
+                ),
             )
         )
         commit = _StubCommit(
@@ -498,60 +570,291 @@ class RouteOrchestratorTests(unittest.TestCase):
         self.assertEqual("success", result.status)
         self.assertEqual(second_success_state, result.final_state)
 
-    def test_cross_source_reachability_expansion_is_rejected_by_orchestrator(self) -> None:
+    def test_same_source_can_reuse_existing_suffix_after_new_prefix(self) -> None:
         grid = build_minimum_active_grid(
-            default_x_rail_ids=("x0", "x1"),
+            default_x_rail_ids=("x0", "x1", "x2", "x3"),
             authored_tier_rail_ids=("tier_0",),
         )
-        junction_b, junction_c = build_runtime_junctions_for_active_grid(grid)
+        junction_a, junction_b, junction_c, junction_d = build_runtime_junctions_for_active_grid(grid)
+        source_port_ref = PortRef(
+            owner_ref=NodeId("node_a"),
+            owner_local_key=PortId("east"),
+        )
+        first_sink_port_ref = PortRef(
+            owner_ref=NodeId("node_b"),
+            owner_local_key=PortId("west"),
+        )
+        second_sink_port_ref = PortRef(
+            owner_ref=NodeId("node_c"),
+            owner_local_key=PortId("west"),
+        )
+        source_node = RuntimeNode(
+            node_id=NodeId("node_a"),
+            ports=(Port(port_ref=source_port_ref),),
+        )
+        first_sink_node = RuntimeNode(
+            node_id=NodeId("node_b"),
+            ports=(Port(port_ref=first_sink_port_ref),),
+        )
+        second_sink_node = RuntimeNode(
+            node_id=NodeId("node_c"),
+            ports=(Port(port_ref=second_sink_port_ref),),
+        )
+        initial_state = self._make_runtime_state(
+            nodes=(source_node, first_sink_node, second_sink_node),
+            junctions=(junction_a, junction_b, junction_c, junction_d),
+        )
+        first_success_state = self._make_runtime_state(
+            nodes=(source_node, first_sink_node, second_sink_node),
+            junctions=(junction_a, junction_b, junction_c, junction_d),
+            edges=(
+                PortEdge(
+                    edge_id=PortEdgeId("edge::source_to_jb"),
+                    port_ref_a=source_port_ref,
+                    port_ref_b=PortRef(
+                        owner_ref=junction_b.junction_id,
+                        owner_local_key=PortId("west"),
+                    ),
+                    scope="external",
+                    traversal_mode="bidirectional",
+                ),
+                PortEdge(
+                    edge_id=PortEdgeId("edge::jb_to_jc"),
+                    port_ref_a=PortRef(
+                        owner_ref=junction_b.junction_id,
+                        owner_local_key=PortId("east"),
+                    ),
+                    port_ref_b=PortRef(
+                        owner_ref=junction_c.junction_id,
+                        owner_local_key=PortId("west"),
+                    ),
+                    scope="external",
+                    traversal_mode="bidirectional",
+                ),
+                PortEdge(
+                    edge_id=PortEdgeId("edge::jc_to_first_sink"),
+                    port_ref_a=PortRef(
+                        owner_ref=junction_c.junction_id,
+                        owner_local_key=PortId("east"),
+                    ),
+                    port_ref_b=first_sink_port_ref,
+                    scope="external",
+                    traversal_mode="bidirectional",
+                ),
+            ),
+        )
+        second_success_state = self._make_runtime_state(
+            nodes=(source_node, first_sink_node, second_sink_node),
+            junctions=(junction_a, junction_b, junction_c, junction_d),
+            edges=first_success_state.objects.edges
+            + (
+                PortEdge(
+                    edge_id=PortEdgeId("edge::source_to_jd"),
+                    port_ref_a=source_port_ref,
+                    port_ref_b=PortRef(
+                        owner_ref=junction_d.junction_id,
+                        owner_local_key=PortId("west"),
+                    ),
+                    scope="external",
+                    traversal_mode="bidirectional",
+                ),
+                PortEdge(
+                    edge_id=PortEdgeId("edge::jd_to_jb"),
+                    port_ref_a=PortRef(
+                        owner_ref=junction_d.junction_id,
+                        owner_local_key=PortId("east"),
+                    ),
+                    port_ref_b=PortRef(
+                        owner_ref=junction_b.junction_id,
+                        owner_local_key=PortId("east"),
+                    ),
+                    scope="external",
+                    traversal_mode="bidirectional",
+                ),
+                PortEdge(
+                    edge_id=PortEdgeId("edge::jc_to_second_sink"),
+                    port_ref_a=PortRef(
+                        owner_ref=junction_c.junction_id,
+                        owner_local_key=PortId("east"),
+                    ),
+                    port_ref_b=second_sink_port_ref,
+                    scope="external",
+                    traversal_mode="bidirectional",
+                ),
+            ),
+        )
+        schema_view = StaticRouteRequirementSchemaView(
+            source_allowances=(
+                RouteRequirementPortAllowance(
+                    object_ref=NodeId("node_a"),
+                    requirement_kind="flow",
+                    port_local_keys=(PortId("east"),),
+                ),
+            ),
+            sink_allowances=(
+                RouteRequirementPortAllowance(
+                    object_ref=NodeId("node_b"),
+                    requirement_kind="flow",
+                    port_local_keys=(PortId("west"),),
+                ),
+                RouteRequirementPortAllowance(
+                    object_ref=NodeId("node_c"),
+                    requirement_kind="flow",
+                    port_local_keys=(PortId("west"),),
+                ),
+            ),
+        )
+        route_requirements = (
+            self._make_requirement("req::a_to_b", NodeId("node_a"), NodeId("node_b")),
+            self._make_requirement("req::a_to_c", NodeId("node_a"), NodeId("node_c")),
+        )
+        router = _StubRouter(
+            responses=(
+                RouterResult(
+                    status="success",
+                    route_plan=self._make_direct_plan(
+                        "req::a_to_b",
+                        start_port_ref=source_port_ref,
+                        step_specs=(
+                            (
+                                "tentative_connection",
+                                PortRef(
+                                    owner_ref=junction_b.junction_id,
+                                    owner_local_key=PortId("west"),
+                                ),
+                            ),
+                            (
+                                "tentative_connection",
+                                PortRef(
+                                    owner_ref=junction_b.junction_id,
+                                    owner_local_key=PortId("east"),
+                                ),
+                            ),
+                            (
+                                "tentative_connection",
+                                PortRef(
+                                    owner_ref=junction_c.junction_id,
+                                    owner_local_key=PortId("west"),
+                                ),
+                            ),
+                            (
+                                "tentative_connection",
+                                PortRef(
+                                    owner_ref=junction_c.junction_id,
+                                    owner_local_key=PortId("east"),
+                                ),
+                            ),
+                            (
+                                "tentative_connection",
+                                first_sink_port_ref,
+                            ),
+                        ),
+                        reached_sink_port_ref=first_sink_port_ref,
+                    ),
+                ),
+                RouterResult(
+                    status="success",
+                    route_plan=self._make_direct_plan(
+                        "req::a_to_c",
+                        start_port_ref=source_port_ref,
+                        step_specs=(
+                            (
+                                "tentative_connection",
+                                PortRef(
+                                    owner_ref=junction_d.junction_id,
+                                    owner_local_key=PortId("west"),
+                                ),
+                            ),
+                            (
+                                "tentative_connection",
+                                PortRef(
+                                    owner_ref=junction_b.junction_id,
+                                    owner_local_key=PortId("east"),
+                                ),
+                            ),
+                            (
+                                "built_edge",
+                                PortRef(
+                                    owner_ref=junction_c.junction_id,
+                                    owner_local_key=PortId("west"),
+                                ),
+                            ),
+                            (
+                                "built_edge",
+                                PortRef(
+                                    owner_ref=junction_c.junction_id,
+                                    owner_local_key=PortId("east"),
+                                ),
+                            ),
+                            ("tentative_connection", second_sink_port_ref),
+                        ),
+                        reached_sink_port_ref=second_sink_port_ref,
+                    ),
+                ),
+            )
+        )
+        commit = _StubCommit(
+            responses=(
+                CommitResult(status="success", new_state=first_success_state),
+                CommitResult(status="success", new_state=second_success_state),
+            )
+        )
+
+        result = V1RouteOrchestrator(router=router, commit=commit)(
+            initial_state,
+            schema_view,
+            route_requirements,
+        )
+
+        self.assertEqual("success", result.status)
+        self.assertEqual(second_success_state, result.final_state)
+
+    def test_reaching_foreign_non_sink_node_port_is_rejected_by_orchestrator(self) -> None:
+        grid = build_minimum_active_grid(
+            default_x_rail_ids=("x0", "x1", "x2"),
+            authored_tier_rail_ids=("tier_0",),
+        )
+        junction_b, junction_c, junction_d = build_runtime_junctions_for_active_grid(grid)
         node_a_port_ref = PortRef(
             owner_ref=NodeId("node_a"),
+            owner_local_key=PortId("east"),
+        )
+        node_c_port_ref = PortRef(
+            owner_ref=NodeId("node_c"),
             owner_local_key=PortId("east"),
         )
         junction_b_west = PortRef(
             owner_ref=junction_b.junction_id,
             owner_local_key=PortId("west"),
         )
-        junction_c_west = PortRef(
+        junction_c_east = PortRef(
             owner_ref=junction_c.junction_id,
+            owner_local_key=PortId("east"),
+        )
+        junction_d_west = PortRef(
+            owner_ref=junction_d.junction_id,
             owner_local_key=PortId("west"),
         )
         node_a = RuntimeNode(
             node_id=NodeId("node_a"),
             ports=(Port(port_ref=node_a_port_ref),),
         )
+        node_c = RuntimeNode(
+            node_id=NodeId("node_c"),
+            ports=(Port(port_ref=node_c_port_ref),),
+        )
         initial_state = self._make_runtime_state(
-            nodes=(node_a,),
-            junctions=(junction_b, junction_c),
+            nodes=(node_a, node_c),
+            junctions=(junction_b, junction_c, junction_d),
         )
         first_success_state = self._make_runtime_state(
-            nodes=(node_a,),
-            junctions=(junction_b, junction_c),
+            nodes=(node_a, node_c),
+            junctions=(junction_b, junction_c, junction_d),
             edges=(
                 PortEdge(
                     edge_id=PortEdgeId("edge::a_to_b"),
                     port_ref_a=node_a_port_ref,
                     port_ref_b=junction_b_west,
-                    scope="external",
-                    traversal_mode="a_to_b",
-                ),
-            ),
-        )
-        leaking_second_state = self._make_runtime_state(
-            nodes=(node_a,),
-            junctions=(junction_b, junction_c),
-            edges=(
-                PortEdge(
-                    edge_id=PortEdgeId("edge::a_to_b"),
-                    port_ref_a=node_a_port_ref,
-                    port_ref_b=junction_b_west,
-                    scope="external",
-                    traversal_mode="a_to_b",
-                ),
-                PortEdge(
-                    edge_id=PortEdgeId("edge::b_to_c"),
-                    port_ref_a=junction_b_west,
-                    port_ref_b=junction_c_west,
                     scope="external",
                     traversal_mode="bidirectional",
                 ),
@@ -565,9 +868,9 @@ class RouteOrchestratorTests(unittest.TestCase):
                     port_local_keys=(PortId("east"),),
                 ),
                 RouteRequirementPortAllowance(
-                    object_ref=junction_b.junction_id,
+                    object_ref=NodeId("node_c"),
                     requirement_kind="flow",
-                    port_local_keys=(PortId("west"),),
+                    port_local_keys=(PortId("east"),),
                 ),
             ),
             sink_allowances=(
@@ -577,7 +880,7 @@ class RouteOrchestratorTests(unittest.TestCase):
                     port_local_keys=(PortId("west"),),
                 ),
                 RouteRequirementPortAllowance(
-                    object_ref=junction_c.junction_id,
+                    object_ref=junction_d.junction_id,
                     requirement_kind="flow",
                     port_local_keys=(PortId("west"),),
                 ),
@@ -585,18 +888,38 @@ class RouteOrchestratorTests(unittest.TestCase):
         )
         route_requirements = (
             self._make_requirement("req::a_to_b", NodeId("node_a"), junction_b.junction_id),
-            self._make_requirement("req::b_to_c", junction_b.junction_id, junction_c.junction_id),
+            self._make_requirement("req::c_to_d", NodeId("node_c"), junction_d.junction_id),
         )
         router = _StubRouter(
             responses=(
-                RouterResult(status="success", route_plan=self._make_stub_plan("req::a_to_b")),
-                RouterResult(status="success", route_plan=self._make_stub_plan("req::b_to_c")),
+                RouterResult(
+                    status="success",
+                    route_plan=self._make_direct_plan(
+                        "req::a_to_b",
+                        start_port_ref=node_a_port_ref,
+                        step_specs=(("tentative_connection", junction_b_west),),
+                        reached_sink_port_ref=junction_b_west,
+                    ),
+                ),
+                RouterResult(
+                    status="success",
+                    route_plan=self._make_direct_plan(
+                        "req::c_to_d",
+                        start_port_ref=node_c_port_ref,
+                        step_specs=(
+                            ("tentative_connection", junction_b_west),
+                            ("built_edge", node_a_port_ref),
+                            ("tentative_connection", junction_d_west),
+                        ),
+                        reached_sink_port_ref=junction_d_west,
+                    ),
+                ),
             )
         )
         commit = _StubCommit(
             responses=(
                 CommitResult(status="success", new_state=first_success_state),
-                CommitResult(status="success", new_state=leaking_second_state),
+                CommitResult(status="success", new_state=first_success_state),
             )
         )
 
@@ -608,7 +931,7 @@ class RouteOrchestratorTests(unittest.TestCase):
 
         self.assertEqual("failure_snapshot", result.status)
         self.assertEqual(1, result.failed_requirement_index)
-        self.assertEqual("req::b_to_c", result.failed_requirement_id)
+        self.assertEqual("req::c_to_d", result.failed_requirement_id)
         self.assertEqual("commit", result.failure_stage)
         self.assertEqual(first_success_state, result.last_successful_state)
 

@@ -189,15 +189,18 @@ Clarifications:
   - requirements are grouped by source object
   - first source appearance is preserved
   - original in-source requirement order is preserved
+- Physical edge capability and source-owned flow semantics are distinct:
+  - built edges remain physically bidirectional by default unless explicitly directional
+  - source-to-sink flow is validated separately as directed per-source flow state
 - A successful exact route may update:
   - node-port usage
   - non-node junction local connections
   - engaged or locked entries
   - terminal attachments
-- Newly committed tentative connections are currently materialized in route-traversal direction (`a_to_b`) by default.
+- Newly committed tentative connections are currently materialized as physically `bidirectional` unless the route step explicitly requests a directional edge.
 - Additive branching inside the current source-owned route tree is legal.
-- A commit for the current source must not create or modify reachable built state for a different source.
-- The current source may reach only sinks explicitly declared for that source; foreign node ports remain illegal.
+- Additive suffix reuse inside the current source-owned flow DAG is legal as long as the result stays acyclic.
+- The current source may reach only sinks explicitly declared for that source; foreign non-sink node ports remain illegal.
 
 ### 3.11 Refinement phase
 
