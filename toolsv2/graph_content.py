@@ -105,8 +105,11 @@ class GraphContentModel:
     route_requirements: tuple[GraphContentRouteRequirement, ...] = ()
     screening_port_requirements: tuple[GraphContentPortAttachmentRequirement, ...] = ()
     ordered_same_row_groups: tuple[GraphContentOrderedSameRowGroup, ...] = ()
+    placement_candidate_policy_id: str | None = None
 
     def __post_init__(self) -> None:
+        if self.placement_candidate_policy_id == "":
+            raise ValueError("GraphContentModel.placement_candidate_policy_id must not be empty")
         _ensure_unique_strings(
             "GraphContentModel.nodes",
             tuple(str(node.node_id) for node in self.nodes),

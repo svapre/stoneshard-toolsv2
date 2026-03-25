@@ -3,6 +3,7 @@ import unittest
 from toolsv2.render_contracts import (
     PixelMaskStampInstruction,
     PrimitiveExpander,
+    RasterStampInstruction,
     RenderResolver,
     RepeatedSpanInstruction,
     ResolvedLocalConnectionSpec,
@@ -101,6 +102,12 @@ class TestRenderContracts(unittest.TestCase):
             end_x=0,
             end_y=12,
         )
+        raster = RasterStampInstruction(
+            layer_id=DEFAULT_ROAD_LAYER_ID,
+            origin_x=0,
+            origin_y=0,
+            rgba_rows=(((0, 0, 0, 0),),),
+        )
 
         self.assertEqual(
             {
@@ -140,6 +147,17 @@ class TestRenderContracts(unittest.TestCase):
                 "attributes",
             },
             set(span.__dataclass_fields__),
+        )
+        self.assertEqual(
+            {
+                "layer_id",
+                "origin_x",
+                "origin_y",
+                "rgba_rows",
+                "composition_operator",
+                "attributes",
+            },
+            set(raster.__dataclass_fields__),
         )
         self.assertEqual(RenderTransformSpec(), sprite.transform)
         self.assertEqual(RenderTransformSpec(), mask.transform)

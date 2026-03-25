@@ -1,0 +1,132 @@
+{
+  "tree_id": "vanilla_magic_mastery",
+  "background_base": "BASE_BACKGROUND.png",
+  "skills": [
+    {
+      "id": "sealFinesse",
+      "name": "Seal Finesse",
+      "tier": 1,
+      "slot": 0,
+      "requires": []
+    },
+    {
+      "id": "preciseMovements",
+      "name": "Precise Movements",
+      "tier": 1,
+      "slot": 1,
+      "requires": []
+    },
+    {
+      "id": "dispersion",
+      "name": "Dispersion",
+      "tier": 1,
+      "slot": 2,
+      "requires": []
+    },
+    {
+      "id": "sealPower",
+      "name": "Seal Power",
+      "tier": 1,
+      "slot": 3,
+      "requires": []
+    },
+    {
+      "id": "sealInsight",
+      "name": "Seal Insight",
+      "tier": 2,
+      "slot": 0,
+      "requires": [
+        [
+          "sealFinesse",
+          "preciseMovements"
+        ]
+      ]
+    },
+    {
+      "id": "lingeringIncantations",
+      "name": "Lingering Incantations",
+      "tier": 2,
+      "slot": 1,
+      "requires": [
+        [
+          "sealFinesse",
+          "preciseMovements"
+        ]
+      ]
+    },
+    {
+      "id": "sealCleansing",
+      "name": "Seal Cleansing",
+      "tier": 2,
+      "slot": 2,
+      "requires": [
+        [
+          "dispersion"
+        ]
+      ]
+    },
+    {
+      "id": "spiritBody",
+      "name": "Spirit Body",
+      "tier": 2,
+      "slot": 3,
+      "requires": [
+        [
+          "sealPower"
+        ]
+      ]
+    },
+    {
+      "id": "thaumaturgy",
+      "name": "Thaumaturgy",
+      "tier": 3,
+      "slot": 0,
+      "requires": [
+        [
+          "sealInsight"
+        ],
+        [
+          "lingeringIncantations"
+        ]
+      ]
+    },
+    {
+      "id": "sealReflection",
+      "name": "Seal Reflection",
+      "tier": 3,
+      "slot": 1,
+      "requires": [
+        [
+          "sealCleansing"
+        ],
+        [
+          "spiritBody"
+        ]
+      ]
+    },
+    {
+      "id": "sealShackles",
+      "name": "Seal Shackles",
+      "tier": 4,
+      "slot": 0,
+      "requires": [
+        [
+          "thaumaturgy",
+          "sealReflection"
+        ]
+      ]
+    },
+    {
+      "id": "magicLore",
+      "name": "Magic Lore",
+      "tier": 4,
+      "slot": 1,
+      "requires": [
+        [
+          "thaumaturgy",
+          "sealReflection"
+        ]
+      ]
+    }
+  ]
+}

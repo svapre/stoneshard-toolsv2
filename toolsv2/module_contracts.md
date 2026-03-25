@@ -72,9 +72,10 @@ Status:
 Responsibilities:
 - Read explicit graph content plus one explicit layout profile and one explicit authored-tier ordering.
 - Derive only provable lower-bound initial grid demands from content.
-- Support reusable demand rules for current content-side implied-band nodes without pushing those node-family rules into solver core.
 - Keep content-driven initial band-layout requirements separate from the full solve loop.
 - Apply profile-owned band-layout patterns to build the initial active grid without leaking profile heuristics into solver core.
+- Resolve compatible same-band demands through profile-owned band-pattern supersession instead of treating every weaker/stronger pair as a conflict.
+- Anchor mediated dynamic-node band demands to the sink-adjacent authored band, even when some implied-gate inputs originate from higher tiers.
 - Allow reusable injected estimation rules so other layout families can tailor lower-bound logic without rewriting the full orchestrator.
 
 Forbidden assumptions:
@@ -176,6 +177,7 @@ Status:
 
 Responsibilities:
 - Define explicit input records for production node instances, route requirements, screening-time port attachment requirements, and same-row ordering groups.
+- Allow content to request an external placement-candidate ranking policy by id.
 - Keep content input separate from solver-internal placement metadata and routing/runtime structures.
 - Require explicit source/sink port allowances in content rather than inferring them from node family.
 
@@ -193,8 +195,10 @@ Responsibilities:
 - Load the current higher-level skill-tree requirement JSON shape.
 - Validate requirement-spec structure and dependency legality.
 - Compile that higher-level requirement spec into explicit current `GraphContentModel`.
+- Treat each outer `requires` group as an `OR` alternative and each inner group as one `AND` requirement set.
 - Insert current implied `AND` nodes as explicit graph content where multi-input requirement groups require them.
-- Constrain implied `AND` nodes to the inter-tier band they mediate by emitting band-local `allowed_y_rail_ids`.
+- Place each implied `AND` node on the sink-adjacent mediated band; mixed upstream source tiers are allowed as long as every dependency still comes from a strictly higher tier than the sink.
+- Bind the current skill-tree placement-candidate policy id into compiled graph content instead of embedding that ranking behavior into generic placement search.
 - Keep requirement-json parsing and graph-content compilation separate from generic solver/runtime layers.
 
 Forbidden assumptions:
@@ -250,6 +254,7 @@ Status:
 
 Responsibilities:
 - Convert explicit graph-content input into canonical `NodeDefinition` records, placement metadata, route requirements, schema-view allowances, screening port requirements, and the shared production visual/build catalog.
+- Resolve any external content-owned placement-candidate ranker before pass-1 placement search.
 - Resolve concrete production node kinds only through the external production family catalog.
 - Preserve per-requirement source/sink port allowances in the schema view rather than collapsing them to one allowance per object and requirement kind.
 - Fail loudly on unknown or malformed explicit production inputs.
@@ -312,7 +317,8 @@ Responsibilities:
 - Optionally cap placement-seed generation for local search control only.
 - Consume the explicitly supplied minimum same-row x-gap for current-grid placement legality.
 - Use smallest-domain-first branching.
-- Keep deterministic tie-breaks and candidate ordering as traversal mechanics only.
+- Keep deterministic tie-breaks as traversal mechanics only.
+- Accept an injected external candidate-junction ranker that may reorder already-legal candidates without changing placement legality.
 
 Frozen pass-1 output meaning:
 - A returned seed is pre-routing only.
@@ -327,8 +333,37 @@ Forbidden assumptions:
 - No refinement.
 - No claim that pass-1 seeds are solved graphs.
 - No claim that deterministic traversal is a solver objective.
+- No hardcoded content-specific candidate-ordering heuristics in solver core.
 - No claim that placement-seed count equals final-output `K`.
 - No grid-expansion classification guessed from pass-1 search alone.
+
+### `placement_policy_contracts.py`
+
+Status:
+- Implemented as the thin generic callback contract for ranking already-legal placement candidates.
+
+Responsibilities:
+- Define the injected candidate-ranker surface used by pass-1 search.
+- Keep candidate-ranking policy separate from placement legality.
+
+Forbidden assumptions:
+- No placement legality in the contract itself.
+- No content-specific ranking behavior embedded in the contract module.
+
+### `placement_policy_catalog.py`
+
+Status:
+- Implemented as the external content-side placement policy registry.
+
+Responsibilities:
+- Resolve content-selected placement-candidate rankers by policy id.
+- Keep graph/content-specific candidate ordering outside generic placement search.
+- Provide the current skill-tree route-graph spring ranking policy as external policy code/data.
+
+Forbidden assumptions:
+- No mutation of domains or placement state.
+- No hardcoded placement legality.
+- No requirement that all content must use the current skill-tree policy.
 
 ## Screening Phase
 
@@ -387,13 +422,13 @@ Responsibilities:
 - Materialize new built `PortEdge` objects from tentative route steps.
 - Enforce local direct-attachment capacity constraints when materializing new edges.
 - Return a new runtime snapshot on success without mutating the input snapshot in place.
-- Keep validation local to the current tentative plan and current snapshot.
+- Perform the current conservative v1 post-update reachability validation tactic over current entry contexts.
 
 Forbidden assumptions:
 - No in-place mutation.
 - No alternate-route search.
 - No placement backtracking or refinement.
-- No source-owned multi-requirement correctness policy.
+- No weakening of validation to only the new route's own source contexts.
 
 ### `routing_policy.py`
 
@@ -458,21 +493,18 @@ Forbidden assumptions:
 ### `route_orchestrator.py`
 
 Status:
-- Implemented as the thin source-grouped routing orchestrator on one fixed runtime snapshot.
+- Implemented as a thin multi-requirement orchestrator on one fixed runtime snapshot.
 
 Responsibilities:
-- Group requirements by `source_object_ref`, preserving first source appearance and original in-source order.
-- Route and commit one source-owned directed flow DAG at a time on immutable snapshots.
-- Keep physical edge traversal capability separate from source-owned flow semantics.
-- Allow additive fanout and suffix reuse inside the current source-owned flow DAG when the result remains acyclic.
-- Reject current-source reachability to undeclared foreign node ports.
+- Route and commit requirements sequentially in explicit order.
 - Thread immutable snapshots forward after each successful commit.
 - Stop on first failure and return snapshot-scoped failure with completed prefix information.
 
 Forbidden assumptions:
+- No requirement reordering.
 - No alternate-route retries.
 - No backtracking across committed requirements.
-- No placement mutation or refinement.
+- No extra correctness logic beyond router and commit.
 
 ### `placement_orchestrator.py`
 
@@ -520,7 +552,10 @@ Responsibilities:
 - Load the current requirement-spec JSON through `skill_tree_requirements.py`.
 - Compile it into explicit current graph content.
 - Run the current estimated full solve loop with built-in default layout/expansion settings.
-- Keep the built-in default expansion policy targeted to already-demanded bands instead of globally widening unrelated bands.
+- Bind the current default lower-bound estimator rules for:
+  - direct adjacent authored skill-to-skill flow bands
+  - single-sink mediated bands
+  - same-band multi-sink split bands
 - Render and save the base PNG with short default command-line usage.
 
 Forbidden assumptions:
@@ -597,8 +632,9 @@ Status:
 
 Responsibilities:
 - Register exact callable composition behavior by declared composition operator.
-- Register optional per-profile object finalizers without changing renderer core.
-- Keep "weird" object/family render behavior external to the core renderer.
+- Register generic rule-driven object finalizers by declared finalizer rule id.
+- Allow rare per-profile object finalizer overrides without changing renderer core.
+- Keep object/family-specific render behavior external to the core renderer.
 
 Forbidden assumptions:
 - No hardcoded object-family behavior in the renderer core.
@@ -634,6 +670,7 @@ Responsibilities:
 - Expand current straight external spans into generic repeated-span instructions.
 - Read layer ordering/composition and connection-family template data from the visual profile catalog.
 - Read local-connection template bindings, per-binding offsets, and transforms from the visual profile catalog.
+- Respect the frozen canonical straight-road primitive orientation and apply the rotated variant only where the profile binding/family requires it.
 
 Forbidden assumptions:
 - No direct reading of runtime truth or graph semantics.
@@ -649,6 +686,7 @@ Status:
 Responsibilities:
 - Read committed runtime truth through the render resolver and primitive expander.
 - Use the explicit render-layout profile for default background and canvas size.
+- Dispatch generic rule-driven object finalization before primitive expansion when a resolved object profile declares it.
 - Sort generic render instructions by declared layer order.
 - Dispatch all composition through the external render-behavior registry.
 - Render the current base output from sprite stamps and repeated spans without embedding object-family-specific code.
@@ -657,7 +695,7 @@ Forbidden assumptions:
 - No routing, placement, or commit behavior.
 - No hidden composition behavior beyond declared operator callables.
 - No asset-color interpretation in renderer core.
-- No object-specific render finalization hardcoded in renderer core.
+- No object-specific render finalization hardcoded in renderer core outside the declared finalizer registry.
 
 ### `render_export.py`
 
@@ -673,3 +711,88 @@ Forbidden assumptions:
 - No solver behavior, routing, placement, or commit logic.
 - No extra renderer policy beyond the already-frozen base renderer path.
 - No format-specific export policy beyond simple image saving.
+
+### `glow/contracts.py`
+
+Status:
+- Implemented as the generic glow export manifest boundary.
+
+Responsibilities:
+- Define generic point, line-asset, and line-instance specs for glow export.
+- Preserve point and line dependency groups without embedding Stoneshard/MSL syntax.
+- Validate manifest cross-references so downstream adapters consume coherent data only.
+
+Forbidden assumptions:
+- No solver, placement, routing, or commit behavior.
+- No line decomposition or geometry inference.
+- No Stoneshard/MSL naming, `Other_24`, or GML formatting rules.
+
+### `glow/serialization.py`
+
+Status:
+- Implemented as JSON-friendly serialization helpers for the generic glow export manifest.
+
+Responsibilities:
+- Convert the generic glow export manifest into deterministic JSON-friendly data.
+- Save manifest JSON for adapters, tooling, or external packagers.
+
+Forbidden assumptions:
+- No adapter-specific code generation.
+- No solver or renderer behavior.
+
+### `adapters/msl_stoneshard/glow_exporter.py`
+
+Status:
+- Implemented as the first Stoneshard/MSL-specific glow export adapter.
+
+Responsibilities:
+- Consume the generic glow export manifest and emit `Other_24`-style GML.
+- Map point/line dependency groups into `addConnectedPoints(...)` and `addConnectedLines(...)`.
+- Emit `ctr_SkillLine` creation with asset lookup, origin setup, anchor position, and `drawKnot`.
+
+Forbidden assumptions:
+- No solver-core ownership of Stoneshard/MSL packaging.
+- No geometry or line-section inference from raw runtime state.
+- No changes to generic glow contracts when only adapter formatting/naming changes.
+
+### `glow/section_builder.py`
+
+Status:
+- Implemented as the first solved-graph -> generic glow-section layer.
+
+Responsibilities:
+- Read one successful solved requirement tree and its committed route plans.
+- Decompose routed geometry into reusable glow sections with point/line dependency groups.
+- Preserve the generic glow export boundary without emitting engine-specific code.
+
+Forbidden assumptions:
+- No Stoneshard/MSL syntax or asset naming.
+- No solver-core mutation or route retry behavior.
+- No renderer-core ownership of glow section semantics.
+
+### `glow/rasterizer.py`
+
+Status:
+- Implemented as the first glow line rasterizer.
+
+Responsibilities:
+- Convert one generic glow section into a cropped red-mask PNG plus line-asset metadata.
+- Preserve anchor/origin data needed by downstream adapters.
+
+Forbidden assumptions:
+- No mod/GML file emission.
+- No solver behavior or section decomposition logic.
+
+### `glow/export.py`
+
+Status:
+- Implemented as the first end-to-end glow export bundle layer.
+
+Responsibilities:
+- Rasterize glow sections from one successful run result.
+- Save glow line PNGs plus generic manifest JSON.
+- Emit Stoneshard `Other_24` GML through the adapter layer.
+
+Forbidden assumptions:
+- No solver-core ownership of engine packaging.
+- No new line-section inference beyond the section-builder result.

@@ -62,9 +62,9 @@ def _span_transform_for_axis_aligned_family(
     if len(family_profile.template_keys) == 2:
         return RenderTransformSpec()
     if span.start_y == span.end_y:
-        return RenderTransformSpec()
-    if span.start_x == span.end_x:
         return RenderTransformSpec(quarter_turns_clockwise=1)
+    if span.start_x == span.end_x:
+        return RenderTransformSpec()
     raise ValueError("Resolved span is not axis aligned")
 
 

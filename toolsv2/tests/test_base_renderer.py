@@ -15,7 +15,11 @@ from toolsv2.runtime_snapshot_builder import build_v1_runtime_snapshot_builder
 from toolsv2.solver_common import Junction, NodeDomain, NodeId, PortEdgeId, PortId, PortRef
 from toolsv2.solver_runtime import PortEdge, PortGraphIndex, PortGraphState, RuntimeObjectSet
 from toolsv2.placement_solver import PlacementSeed
-from toolsv2.visual_profiles import DEFAULT_SKILL_FRAME_BODY_TEMPLATE_KEY
+from toolsv2.visual_profiles import (
+    DEFAULT_EXTERNAL_STRAIGHT_TEMPLATE_KEY,
+    DEFAULT_SKILL_FRAME_BODY_TEMPLATE_KEY,
+    RenderTransformSpec,
+)
 from toolsv2.source_art_catalog import build_v1_source_render_templates
 
 
@@ -81,8 +85,10 @@ class BaseRendererTests(unittest.TestCase):
         )
 
         self.assertEqual((163, 257), result.image.size)
+        self.assertEqual((163, 257), result.background_image.size)
         self.assertEqual(1, len(result.resolved_objects))
         self.assertEqual(2, len(result.instructions))
+        self.assertTrue(any(layer.layer_id == "object_body" for layer in result.layer_images))
 
         body_template = next(
             template
@@ -134,9 +140,27 @@ class BaseRendererTests(unittest.TestCase):
             visual_catalog,
         )
 
+        self.assertTrue(any(layer.layer_id == "road" for layer in result.layer_images))
+
         background_pixel = result.image.getpixel((33, 40))
-        road_pixel = result.image.getpixel((33, 55))
-        self.assertNotEqual(background_pixel, road_pixel)
+        road_boundary_pixel = result.image.getpixel((33, 54))
+        road_center_pixel = result.image.getpixel((33, 55))
+        road_lower_boundary_pixel = result.image.getpixel((33, 56))
+        self.assertNotEqual(background_pixel, road_center_pixel)
+
+        straight_template = next(
+            template
+            for template in build_v1_source_render_templates()
+            if template.template_key == DEFAULT_EXTERNAL_STRAIGHT_TEMPLATE_KEY
+        )
+        rotated_straight = build_cached_render_template_loader().load(
+            straight_template,
+            RenderTransformSpec(quarter_turns_clockwise=1),
+        ).image
+        assert rotated_straight is not None
+        self.assertEqual(rotated_straight.getpixel((0, 0)), road_boundary_pixel)
+        self.assertEqual(rotated_straight.getpixel((0, 1)), road_center_pixel)
+        self.assertEqual(rotated_straight.getpixel((0, 2)), road_lower_boundary_pixel)
 
 
 if __name__ == "__main__":

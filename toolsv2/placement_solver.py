@@ -34,6 +34,7 @@ from toolsv2.domain_builder import (
     OrderedSameRowGroup,
     build_raw_domains,
 )
+from toolsv2.placement_policy_contracts import PlacementCandidateRanker
 from toolsv2.propagation import propagate_domains
 from toolsv2.screening import PortAttachmentRequirement, screen_node_domain
 from toolsv2.solver_types import (
@@ -152,6 +153,32 @@ def _sorted_junctions(
             ),
         )
     )
+
+
+def _ordered_candidate_junctions(
+    active_grid: ActiveGridState,
+    branch_node_id: NodeId,
+    junctions: frozenset[Junction],
+    domains: Mapping[NodeId, NodeDomain],
+    minimum_same_row_gap: int,
+    candidate_ranker: PlacementCandidateRanker | None,
+) -> tuple[Junction, ...]:
+    default_order = _sorted_junctions(active_grid, junctions)
+    if candidate_ranker is None:
+        return default_order
+
+    ranked = candidate_ranker(
+        active_grid,
+        branch_node_id,
+        junctions,
+        domains,
+        minimum_same_row_gap,
+    )
+    if set(ranked) != set(junctions):
+        raise ValueError("candidate_ranker must return exactly the supplied candidate junctions")
+    if len(ranked) != len(junctions):
+        raise ValueError("candidate_ranker must not repeat candidate junctions")
+    return ranked
 
 
 def _all_domains_singleton(domains: Mapping[NodeId, NodeDomain]) -> bool:
@@ -281,6 +308,7 @@ def _search_current_grid(
     ordered_same_row_groups: Sequence[OrderedSameRowGroup],
     port_requirements_by_node_id: Mapping[NodeId, Sequence[PortAttachmentRequirement]],
     minimum_same_row_gap: int,
+    candidate_ranker: PlacementCandidateRanker | None,
     domains: dict[NodeId, NodeDomain],
     branch_attempts: tuple[BranchAttempt, ...],
     remaining_seed_limit: int,
@@ -323,9 +351,13 @@ def _search_current_grid(
     contradiction_observed = False
     found_seeds: list[PlacementSeed] = []
     failure_domains: dict[NodeId, NodeDomain] | None = None
-    for candidate_junction in _sorted_junctions(
-        active_grid,
-        stabilized.domains[branch_node_id].junctions,
+    for candidate_junction in _ordered_candidate_junctions(
+        active_grid=active_grid,
+        branch_node_id=branch_node_id,
+        junctions=stabilized.domains[branch_node_id].junctions,
+        domains=stabilized.domains,
+        minimum_same_row_gap=minimum_same_row_gap,
+        candidate_ranker=candidate_ranker,
     ):
         if len(found_seeds) >= remaining_seed_limit:
             break
@@ -350,6 +382,7 @@ def _search_current_grid(
             ordered_same_row_groups=ordered_same_row_groups,
             port_requirements_by_node_id=port_requirements_by_node_id,
             minimum_same_row_gap=minimum_same_row_gap,
+            candidate_ranker=candidate_ranker,
             domains=branch_domains,
             branch_attempts=next_attempts,
             remaining_seed_limit=remaining_seed_limit - len(found_seeds),
@@ -384,6 +417,7 @@ def solve_placement_on_current_grid(
     port_requirements_by_node_id: Mapping[NodeId, Sequence[PortAttachmentRequirement]] | None = None,
     max_seeds: int = 1,
     minimum_same_row_gap: int = 1,
+    candidate_junction_ranker: PlacementCandidateRanker | None = None,
 ) -> PlacementResult:
     """Return up to ``max_seeds`` provisional placement seeds on the current grid.
 
@@ -421,6 +455,7 @@ def solve_placement_on_current_grid(
         ordered_same_row_groups=ordered_same_row_groups,
         port_requirements_by_node_id=normalized_requirements,
         minimum_same_row_gap=minimum_same_row_gap,
+        candidate_ranker=candidate_junction_ranker,
         domains=initial_domains,
         branch_attempts=(),
         remaining_seed_limit=max_seeds,

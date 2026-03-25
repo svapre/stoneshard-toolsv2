@@ -26,6 +26,7 @@ from toolsv2.visual_profiles import (
     DEFAULT_SHADOW_LAYER_ID,
     DEFAULT_OBJECT_BODY_LAYER_ID,
     DEFAULT_OBJECT_FOREGROUND_LAYER_ID,
+    FINALIZER_COMPOSE_LOCAL_BLOCK,
     InternalTransitionSpec,
     JunctionPatternOverrideSpec,
     LocalConnectionTemplateSpec,
@@ -221,7 +222,7 @@ class TestVisualProfiles(unittest.TestCase):
             (
                 COMPOSITION_OVERWRITE,
                 COMPOSITION_OVERWRITE,
-                COMPOSITION_MAX_LIGHT,
+                COMPOSITION_OVERWRITE,
                 COMPOSITION_OVERWRITE,
                 COMPOSITION_OVERWRITE,
             ),
@@ -248,9 +249,21 @@ class TestVisualProfiles(unittest.TestCase):
             {port.port_id: (port.offset_x, port.offset_y) for port in profile.ports},
         )
         self.assertEqual(12, len(profile.internal_transitions))
+        junction_style = catalog.render_style_profile(DEFAULT_PLAIN_JUNCTION_PROFILE_KEY)
+        self.assertEqual(6, len(junction_style.local_connection_templates))
+        self.assertEqual(FINALIZER_COMPOSE_LOCAL_BLOCK, junction_style.finalizer_rule_id)
+        self.assertEqual(COMPOSITION_MAX_LIGHT, junction_style.local_composition_operator)
+        bindings_by_pair = {
+            frozenset(template.port_ids): template.binding
+            for template in junction_style.local_connection_templates
+        }
         self.assertEqual(
-            6,
-            len(catalog.render_style_profile(DEFAULT_PLAIN_JUNCTION_PROFILE_KEY).local_connection_templates),
+            0,
+            bindings_by_pair[frozenset((PortId("north"), PortId("south")))].transform.quarter_turns_clockwise,
+        )
+        self.assertEqual(
+            1,
+            bindings_by_pair[frozenset((PortId("west"), PortId("east")))].transform.quarter_turns_clockwise,
         )
         self.assertTrue(
             all(

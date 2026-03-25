@@ -1,0 +1,158 @@
+{
+  "tree_id": "vanilla_arcanistics",
+  "background_base": "BASE_BACKGROUND.png",
+  "skills": [
+    {
+      "id": "wormhole",
+      "name": "Wormhole",
+      "tier": 1,
+      "slot": 0,
+      "requires": []
+    },
+    {
+      "id": "planarExchange",
+      "name": "Planar Exchange",
+      "tier": 1,
+      "slot": 1,
+      "requires": []
+    },
+    {
+      "id": "arcaneMight",
+      "name": "Arcane Might",
+      "tier": 1,
+      "slot": 2,
+      "requires": []
+    },
+    {
+      "id": "temporalEcho",
+      "name": "Temporal Echo",
+      "tier": 2,
+      "slot": 0,
+      "requires": [
+        [
+          "wormhole"
+        ]
+      ]
+    },
+    {
+      "id": "schism",
+      "name": "Schism",
+      "tier": 2,
+      "slot": 1,
+      "requires": [
+        [
+          "wormhole"
+        ],
+        [
+          "planarExchange"
+        ]
+      ]
+    },
+    {
+      "id": "spatialAnchors",
+      "name": "Spatial Anchors",
+      "tier": 2,
+      "slot": 2,
+      "requires": [
+        [
+          "planarExchange"
+        ]
+      ]
+    },
+    {
+      "id": "aetherShield",
+      "name": "Aether Shield",
+      "tier": 2,
+      "slot": 3,
+      "requires": [
+        [
+          "planarExchange",
+          "arcaneMight"
+        ]
+      ]
+    },
+    {
+      "id": "astralTides",
+      "name": "Astral Tides",
+      "tier": 3,
+      "slot": 0,
+      "requires": [
+        [
+          "schism"
+        ]
+      ]
+    },
+    {
+      "id": "manaCrystal",
+      "name": "Mana Crystal",
+      "tier": 3,
+      "slot": 1,
+      "requires": [
+        [
+          "schism",
+          "planarExchange",
+          "spatialAnchors"
+        ]
+      ]
+    },
+    {
+      "id": "stasis",
+      "name": "Stasis",
+      "tier": 3,
+      "slot": 2,
+      "requires": [
+        [
+          "spatialAnchors"
+        ],
+        [
+          "aetherShield"
+        ]
+      ]
+    },
+    {
+      "id": "astralPhantom",
+      "name": "Astral Phantom",
+      "tier": 4,
+      "slot": 0,
+      "requires": [
+        [
+          "astralTides"
+        ]
+      ]
+    },
+    {
+      "id": "extraplanarGeometry",
+      "name": "Extraplanar Geometry",
+      "tier": 4,
+      "slot": 1,
+      "requires": [
+        [
+          "astralTides",
+          "manaCrystal"
+        ]
+      ]
+    },
+    {
+      "id": "aetherealHarmony",
+      "name": "Aethereal Harmony",
+      "tier": 4,
+      "slot": 2,
+      "requires": [
+        [
+          "manaCrystal"
+        ]
+      ]
+    },
+    {
+      "id": "beyondVeil",
+      "name": "Beyond the Veil",
+      "tier": 4,
+      "slot": 3,
+      "requires": [
+        [
+          "stasis"
+        ]
+      ]
+    }
+  ]
+}

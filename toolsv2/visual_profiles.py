@@ -26,6 +26,7 @@ VisualLayerId = NewType("VisualLayerId", str)
 RenderTemplateKey = NewType("RenderTemplateKey", str)
 ConnectionFamilyKey = NewType("ConnectionFamilyKey", str)
 CompositionOperatorId = NewType("CompositionOperatorId", str)
+ObjectFinalizerRuleId = NewType("ObjectFinalizerRuleId", str)
 RenderTemplateKind = Literal["pixel_mask", "sprite_ref"]
 ConnectionRuleKind = Literal["repeat_span", "local_connection_piece"]
 
@@ -38,6 +39,8 @@ DEFAULT_OBJECT_FOREGROUND_LAYER_ID = VisualLayerId("object_foreground")
 
 COMPOSITION_OVERWRITE = CompositionOperatorId("overwrite")
 COMPOSITION_MAX_LIGHT = CompositionOperatorId("max_light")
+
+FINALIZER_COMPOSE_LOCAL_BLOCK = ObjectFinalizerRuleId("compose_local_block")
 
 
 class LogicalToRenderMapper(Protocol):
@@ -260,6 +263,8 @@ class RenderStyleProfile:
     template_bindings: tuple[RenderTemplateBinding, ...] = ()
     local_connection_templates: tuple[LocalConnectionTemplateSpec, ...] = ()
     connection_pattern_overrides: tuple[JunctionPatternOverrideSpec, ...] = ()
+    finalizer_rule_id: ObjectFinalizerRuleId | None = None
+    local_composition_operator: CompositionOperatorId | None = None
     attributes: Attributes = ()
 
     def __post_init__(self) -> None:
@@ -431,7 +436,7 @@ def build_v1_default_render_layers() -> tuple[RenderLayerSpec, ...]:
         RenderLayerSpec(
             layer_id=DEFAULT_ROAD_LAYER_ID,
             order=3,
-            composition_operator=COMPOSITION_MAX_LIGHT,
+            composition_operator=COMPOSITION_OVERWRITE,
         ),
         RenderLayerSpec(
             layer_id=DEFAULT_OBJECT_BODY_LAYER_ID,
@@ -495,6 +500,8 @@ def build_v1_plain_junction_visual_profile_catalog() -> StaticVisualProfileCatal
         for to_port in ports
         if from_port.port_id != to_port.port_id
     )
+    from toolsv2.source_art_catalog import build_v1_source_render_templates
+
     return StaticVisualProfileCatalog(
         build_geometry_profiles=(
             BuildGeometryProfile(
@@ -507,13 +514,14 @@ def build_v1_plain_junction_visual_profile_catalog() -> StaticVisualProfileCatal
         render_style_profiles=(
             RenderStyleProfile(
                 profile_key=DEFAULT_PLAIN_JUNCTION_PROFILE_KEY,
+                finalizer_rule_id=FINALIZER_COMPOSE_LOCAL_BLOCK,
+                local_composition_operator=COMPOSITION_MAX_LIGHT,
                 local_connection_templates=(
                     LocalConnectionTemplateSpec(
                         port_ids=(PortId("north"), PortId("south")),
                         binding=RenderTemplateBinding(
                             layer_id=DEFAULT_ROAD_LAYER_ID,
                             template_key=DEFAULT_EXTERNAL_STRAIGHT_TEMPLATE_KEY,
-                            transform=RenderTransformSpec(quarter_turns_clockwise=1),
                         ),
                     ),
                     LocalConnectionTemplateSpec(
@@ -521,6 +529,7 @@ def build_v1_plain_junction_visual_profile_catalog() -> StaticVisualProfileCatal
                         binding=RenderTemplateBinding(
                             layer_id=DEFAULT_ROAD_LAYER_ID,
                             template_key=DEFAULT_EXTERNAL_STRAIGHT_TEMPLATE_KEY,
+                            transform=RenderTransformSpec(quarter_turns_clockwise=1),
                         ),
                     ),
                     LocalConnectionTemplateSpec(
@@ -558,6 +567,7 @@ def build_v1_plain_junction_visual_profile_catalog() -> StaticVisualProfileCatal
             ),
         ),
         render_layers=build_v1_default_render_layers(),
+        render_templates=build_v1_source_render_templates(),
         connection_families=(
             ConnectionFamilyProfile(
                 family_key=DEFAULT_EXTERNAL_STRAIGHT_CONNECTION_FAMILY_KEY,

@@ -18,6 +18,9 @@ from toolsv2.graph_content import (
     GraphContentPortAttachmentRequirement,
     GraphContentRouteRequirement,
 )
+from toolsv2.placement_policy_catalog import (
+    V1_SKILL_TREE_ROUTE_GRAPH_SPRING_POLICY_ID,
+)
 from toolsv2.production_family_catalog import (
     V1_AND_KNOT_BOTTOM_PORT_ID,
     V1_AND_KNOT_KIND,
@@ -228,19 +231,16 @@ def _background_asset_ref(background_base: str | None) -> str | None:
     return f"art/source/background/base/{background_base}"
 
 
-def _mediated_band_allowed_y_rail_ids(
+def _sink_adjacent_band_allowed_y_rail_ids(
     *,
-    source_tier: int,
     sink_tier: int,
     dynamic_rail_count: int = _V1_MAX_MEDIATED_BAND_DYNAMIC_RAILS,
 ) -> tuple[LogicalYRailId, ...]:
-    if sink_tier != source_tier + 1:
-        raise ValueError(
-            "Current v1 requirement compiler supports implied AND gates only between adjacent tiers"
-        )
+    if sink_tier < 2:
+        raise ValueError("Implied AND gates must feed a sink below tier 1")
     if dynamic_rail_count < 1:
         raise ValueError("dynamic_rail_count must be at least 1")
-    upper_authored_rail_id = _tier_to_authored_rail_id(source_tier)
+    upper_authored_rail_id = _tier_to_authored_rail_id(sink_tier - 1)
     lower_authored_rail_id = _tier_to_authored_rail_id(sink_tier)
     return tuple(
         LogicalYRailId(f"dyn::{upper_authored_rail_id}::{lower_authored_rail_id}::{index}")
@@ -302,22 +302,12 @@ def compile_v1_skill_tree_to_graph_content(
 
     for (sink_tier, source_ids), sink_ids in sorted(grouped_multi_input_requirements.items()):
         ordered_source_ids = _ordered_gate_sources(source_ids, skills_by_id=skills_by_id)
-        source_tiers = {
-            skills_by_id[source_id].tier
-            for source_id in ordered_source_ids
-        }
-        if len(source_tiers) != 1:
-            raise ValueError(
-                "Current v1 requirement compiler supports implied AND gates only for one source tier per group"
-            )
-        source_tier = next(iter(source_tiers))
         gate_id = NodeId(f"node__req__tier{sink_tier}__{'__'.join(ordered_source_ids)}")
         nodes.append(
             GraphContentNode(
                 node_id=gate_id,
                 kind=V1_AND_KNOT_KIND,
-                allowed_y_rail_ids=_mediated_band_allowed_y_rail_ids(
-                    source_tier=source_tier,
+                allowed_y_rail_ids=_sink_adjacent_band_allowed_y_rail_ids(
                     sink_tier=sink_tier,
                 ),
             )
@@ -379,6 +369,7 @@ def compile_v1_skill_tree_to_graph_content(
             route_requirements=tuple(route_requirements),
             screening_port_requirements=tuple(screening_port_requirements),
             ordered_same_row_groups=ordered_same_row_groups,
+            placement_candidate_policy_id=V1_SKILL_TREE_ROUTE_GRAPH_SPRING_POLICY_ID,
         ),
         authored_tier_rail_ids=authored_tier_rail_ids,
         background_asset_ref=_background_asset_ref(tree.background_base),

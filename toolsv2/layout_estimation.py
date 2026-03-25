@@ -14,11 +14,12 @@ from typing import Callable, Iterable, Sequence
 from toolsv2.graph_content import GraphContentModel
 from toolsv2.layout_profiles import (
     LayoutProfile,
+    band_layout_pattern_supersedes,
     build_band_expansion_step_for_layout_pattern,
     build_minimum_active_grid_for_layout_profile,
     get_band_layout_pattern,
 )
-from toolsv2.production_node_definitions import V1_AND_KNOT_KIND
+from toolsv2.production_node_definitions import V1_AND_KNOT_KIND, V1_SKILL_FRAME_KIND
 from toolsv2.profile import apply_band_dynamic_y_rail_layout
 from toolsv2.solver_common import ActiveGridState, LogicalYRailId, NodeId
 
@@ -104,7 +105,20 @@ def _find_band_id(
     )
 
 
+def _sink_adjacent_upper_tier(
+    lower_tier: LogicalYRailId,
+    *,
+    order_lookup: dict[LogicalYRailId, int],
+    authored_tier_rail_ids: tuple[LogicalYRailId, ...],
+) -> LogicalYRailId | None:
+    lower_index = order_lookup.get(lower_tier)
+    if lower_index is None or lower_index <= 0:
+        return None
+    return authored_tier_rail_ids[lower_index - 1]
+
+
 def _normalize_band_layout_demands(
+    layout_profile: LayoutProfile,
     band_layout_demands: Iterable[BandLayoutDemand],
 ) -> tuple[BandLayoutDemand, ...]:
     deduped: dict[tuple[LogicalYRailId, LogicalYRailId], BandLayoutDemand] = {}
@@ -118,6 +132,19 @@ def _normalize_band_layout_demands(
             deduped[key] = demand
             continue
         if existing != demand:
+            if band_layout_pattern_supersedes(
+                layout_profile,
+                stronger_pattern_id=demand.pattern_id,
+                weaker_pattern_id=existing.pattern_id,
+            ):
+                deduped[key] = demand
+                continue
+            if band_layout_pattern_supersedes(
+                layout_profile,
+                stronger_pattern_id=existing.pattern_id,
+                weaker_pattern_id=demand.pattern_id,
+            ):
+                continue
             raise ValueError(
                 "Conflicting band layout demands for the same authored band are not allowed"
             )
@@ -135,7 +162,7 @@ def apply_band_layout_demands_to_grid(
     """Apply one ordered set of profile-owned band-layout demands to a grid."""
 
     current_grid = active_grid
-    for demand in _normalize_band_layout_demands(band_layout_demands):
+    for demand in _normalize_band_layout_demands(layout_profile, band_layout_demands):
         band_id = _find_band_id(
             current_grid,
             upper_authored_tier_rail_id=demand.upper_authored_tier_rail_id,
@@ -189,9 +216,12 @@ class V1RuleBasedLayoutDemandEstimator:
             authored_tier_rail_ids=self.authored_tier_rail_ids,
         )
         band_layout_demands = _normalize_band_layout_demands(
-            demand
-            for rule in self.band_layout_demand_rules
-            for demand in rule(content, self.layout_profile, self.authored_tier_rail_ids)
+            self.layout_profile,
+            (
+                demand
+                for rule in self.band_layout_demand_rules
+                for demand in rule(content, self.layout_profile, self.authored_tier_rail_ids)
+            ),
         )
         initial_grid = apply_band_layout_demands_to_grid(
             self.layout_profile,
@@ -254,23 +284,17 @@ def build_same_band_multi_sink_split_pattern_rule(
                     sink_counts_by_tier.get(sink_node.authored_tier_y_rail_id, 0) + 1
                 )
 
-            incoming_tiers = {
-                node_lookup[requirement.source_node_id].authored_tier_y_rail_id
-                for requirement in incoming_by_sink.get(node.node_id, [])
-                if node_lookup[requirement.source_node_id].authored_tier_y_rail_id is not None
-            }
-            if len(incoming_tiers) != 1:
-                continue
-            upper_tier = next(iter(incoming_tiers))
-            if upper_tier not in order_lookup:
-                continue
-
             for lower_tier, sink_count in sink_counts_by_tier.items():
                 if sink_count < 2:
                     continue
                 if lower_tier not in order_lookup:
                     continue
-                if order_lookup[lower_tier] != order_lookup[upper_tier] + 1:
+                upper_tier = _sink_adjacent_upper_tier(
+                    lower_tier,
+                    order_lookup=order_lookup,
+                    authored_tier_rail_ids=authored_tier_rail_ids,
+                )
+                if upper_tier is None:
                     continue
 
                 key = (upper_tier, lower_tier)
@@ -340,15 +364,79 @@ def build_single_sink_mediated_band_rule(
                 continue
             lower_tier = outgoing_sink_tiers[0]
 
-            incoming_tiers = {
-                node_lookup[requirement.source_node_id].authored_tier_y_rail_id
-                for requirement in incoming_by_sink.get(node.node_id, [])
-                if node_lookup[requirement.source_node_id].authored_tier_y_rail_id is not None
-            }
-            if len(incoming_tiers) != 1:
+            if lower_tier not in order_lookup:
                 continue
-            upper_tier = next(iter(incoming_tiers))
+            upper_tier = _sink_adjacent_upper_tier(
+                lower_tier,
+                order_lookup=order_lookup,
+                authored_tier_rail_ids=authored_tier_rail_ids,
+            )
+            if upper_tier is None:
+                continue
 
+            key = (upper_tier, lower_tier)
+            demands[key] = BandLayoutDemand(
+                upper_authored_tier_rail_id=upper_tier,
+                lower_authored_tier_rail_id=lower_tier,
+                pattern_id=pattern_id,
+                ordered_dynamic_rail_ids=_build_band_dynamic_rail_ids(
+                    upper_tier,
+                    lower_tier,
+                    len(pattern.relative_positions),
+                ),
+            )
+
+        return tuple(
+            demands[key]
+            for key in sorted(demands, key=lambda item: (str(item[0]), str(item[1])))
+        )
+
+    return _rule
+
+
+def build_adjacent_authored_flow_band_rule(
+    *,
+    source_node_kind: str = V1_SKILL_FRAME_KIND,
+    sink_node_kind: str = V1_SKILL_FRAME_KIND,
+    pattern_id: str,
+) -> BandLayoutDemandRule:
+    """Build one reusable lower-bound rule for direct adjacent-tier authored flow.
+
+    This is intentionally conservative: if an authored source node of the chosen
+    kind has a direct route requirement into an authored sink node of the chosen
+    kind on the immediately lower authored tier, the band between those tiers
+    demands the profile-owned pattern. This keeps the reasoning local to layout
+    estimation instead of pushing route-space assumptions into placement/routing.
+    """
+
+    def _rule(
+        content: GraphContentModel,
+        layout_profile: LayoutProfile,
+        authored_tier_rail_ids: tuple[LogicalYRailId, ...],
+    ) -> tuple[BandLayoutDemand, ...]:
+        order_lookup = {
+            rail_id: index
+            for index, rail_id in enumerate(authored_tier_rail_ids)
+        }
+        node_lookup = {
+            node.node_id: node
+            for node in content.nodes
+        }
+        pattern = get_band_layout_pattern(
+            layout_profile,
+            pattern_id,
+        )
+        demands: dict[tuple[LogicalYRailId, LogicalYRailId], BandLayoutDemand] = {}
+
+        for requirement in content.route_requirements:
+            source_node = node_lookup[requirement.source_node_id]
+            sink_node = node_lookup[requirement.sink_node_id]
+            if source_node.kind != source_node_kind or sink_node.kind != sink_node_kind:
+                continue
+            upper_tier = source_node.authored_tier_y_rail_id
+            lower_tier = sink_node.authored_tier_y_rail_id
+            if upper_tier is None or lower_tier is None:
+                continue
             if upper_tier not in order_lookup or lower_tier not in order_lookup:
                 continue
             if order_lookup[lower_tier] != order_lookup[upper_tier] + 1:

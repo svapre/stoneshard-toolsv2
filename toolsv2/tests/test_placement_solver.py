@@ -151,6 +151,37 @@ class PlacementSolverTests(unittest.TestCase):
         self.assertEqual(a_left, result.seeds[0].assignments[NodeId("a")])
         self.assertEqual(b_fixed, result.seeds[0].assignments[NodeId("b")])
 
+    def test_candidate_junction_ranker_can_override_default_left_to_right_branch_order(self) -> None:
+        grid = _grid("x0", "x1", "x2")
+        left = Junction(grid.x_rails[0].rail_id, grid.y_rails[0].rail_id)
+        right = Junction(grid.x_rails[1].rail_id, grid.y_rails[0].rail_id)
+        raw_domains = {
+            NodeId("a"): _domain("a", left, right),
+            NodeId("b"): _domain(
+                "b",
+                Junction(grid.x_rails[2].rail_id, grid.y_rails[0].rail_id),
+            ),
+        }
+
+        def _reverse_ranker(active_grid, branch_node_id, candidate_junctions, domains, minimum_same_row_gap):
+            self.assertEqual(NodeId("a"), branch_node_id)
+            return tuple(reversed(sorted(candidate_junctions, key=lambda junction: str(junction.x_rail_id))))
+
+        with patch("toolsv2.placement_solver.build_raw_domains", return_value=raw_domains):
+            result = solve_placement_on_current_grid(
+                active_grid=grid,
+                routing_policy=_policy(),
+                node_definitions={
+                    NodeId("a"): _node_definition("a"),
+                    NodeId("b"): _node_definition("b"),
+                },
+                node_metadata=_metadata("a", "b"),
+                candidate_junction_ranker=_reverse_ranker,
+            )
+
+        self.assertEqual("success", result.status)
+        self.assertEqual(right, result.seeds[0].assignments[NodeId("a")])
+
     def test_adjacent_occupied_sites_do_not_force_current_grid_contradiction(self) -> None:
         grid = _grid("x0", "x1", "x2", "x3")
         a_left = Junction(grid.x_rails[1].rail_id, grid.y_rails[0].rail_id)

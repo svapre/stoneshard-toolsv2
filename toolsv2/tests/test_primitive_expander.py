@@ -16,7 +16,6 @@ from toolsv2.render_contracts import (
 )
 from toolsv2.solver_common import PortEdgeId, PortId, RenderProfileKey
 from toolsv2.visual_profiles import (
-    COMPOSITION_MAX_LIGHT,
     COMPOSITION_OVERWRITE,
     ConnectionFamilyKey,
     DEFAULT_EXTERNAL_STRAIGHT_CONNECTION_FAMILY_KEY,
@@ -102,8 +101,8 @@ class PrimitiveExpanderTests(unittest.TestCase):
                     start_y=200,
                     end_x=139,
                     end_y=200,
-                    transform=RenderTransformSpec(),
-                    composition_operator=COMPOSITION_MAX_LIGHT,
+                    transform=RenderTransformSpec(quarter_turns_clockwise=1),
+                    composition_operator=COMPOSITION_OVERWRITE,
                 ),
             ),
             instructions,
@@ -141,8 +140,8 @@ class PrimitiveExpanderTests(unittest.TestCase):
                     start_y=185,
                     end_x=100,
                     end_y=214,
-                    transform=RenderTransformSpec(quarter_turns_clockwise=1),
-                    composition_operator=COMPOSITION_MAX_LIGHT,
+                    transform=RenderTransformSpec(),
+                    composition_operator=COMPOSITION_OVERWRITE,
                 ),
             ),
             instructions,
@@ -176,7 +175,7 @@ class PrimitiveExpanderTests(unittest.TestCase):
                     anchor_x=100,
                     anchor_y=200,
                     transform=RenderTransformSpec(),
-                    composition_operator=COMPOSITION_MAX_LIGHT,
+                    composition_operator=COMPOSITION_OVERWRITE,
                 ),
             ),
             instructions,

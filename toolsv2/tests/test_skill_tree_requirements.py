@@ -9,6 +9,9 @@ from toolsv2.production_family_catalog import (
     V1_AND_KNOT_KIND,
     V1_SKILL_FRAME_KIND,
 )
+from toolsv2.placement_policy_catalog import (
+    V1_SKILL_TREE_ROUTE_GRAPH_SPRING_POLICY_ID,
+)
 from toolsv2.skill_tree_requirements import (
     authored_tier_rail_ids_for_tree,
     compile_v1_skill_tree_to_graph_content,
@@ -138,12 +141,112 @@ class SkillTreeRequirementsTests(unittest.TestCase):
             if node.kind == V1_AND_KNOT_KIND
         ]
         self.assertEqual(1, len(and_nodes))
-        self.assertEqual(
-            ("dyn::tier_0::tier_1::0", "dyn::tier_0::tier_1::1"),
-            tuple(str(rail_id) for rail_id in and_nodes[0].allowed_y_rail_ids or ()),
-        )
         self.assertEqual(4, len(compiled.graph_content.route_requirements))
         self.assertEqual(2, len(compiled.graph_content.screening_port_requirements))
+        self.assertEqual(
+            V1_SKILL_TREE_ROUTE_GRAPH_SPRING_POLICY_ID,
+            compiled.graph_content.placement_candidate_policy_id,
+        )
+
+    def test_multiple_requires_groups_compile_as_or_alternatives(self) -> None:
+        compiled = compile_v1_skill_tree_to_graph_content(
+            load_skill_tree_requirement_spec(
+                self._write_tree_json(
+                    {
+                        "tree_id": "or_tree",
+                        "skills": [
+                            {
+                                "id": "a1",
+                                "name": "A1",
+                                "tier": 1,
+                                "slot": 0,
+                                "requires": [],
+                            },
+                            {
+                                "id": "b1",
+                                "name": "B1",
+                                "tier": 1,
+                                "slot": 1,
+                                "requires": [],
+                            },
+                            {
+                                "id": "x2",
+                                "name": "X2",
+                                "tier": 2,
+                                "slot": 0,
+                                "requires": [["a1"], ["b1"]],
+                            },
+                        ],
+                    }
+                )
+            )
+        )
+
+        self.assertEqual(
+            0,
+            sum(1 for node in compiled.graph_content.nodes if node.kind == V1_AND_KNOT_KIND),
+        )
+        self.assertEqual(2, len(compiled.graph_content.route_requirements))
+        self.assertEqual(
+            {(NodeId("a1"), NodeId("x2")), (NodeId("b1"), NodeId("x2"))},
+            {
+                (requirement.source_node_id, requirement.sink_node_id)
+                for requirement in compiled.graph_content.route_requirements
+            },
+        )
+
+    def test_mixed_tier_and_group_gate_uses_sink_adjacent_band(self) -> None:
+        compiled = compile_v1_skill_tree_to_graph_content(
+            load_skill_tree_requirement_spec(
+                self._write_tree_json(
+                    {
+                        "tree_id": "mixed_tier_and_tree",
+                        "skills": [
+                            {
+                                "id": "a1",
+                                "name": "A1",
+                                "tier": 1,
+                                "slot": 0,
+                                "requires": [],
+                            },
+                            {
+                                "id": "b2",
+                                "name": "B2",
+                                "tier": 2,
+                                "slot": 0,
+                                "requires": [["a1"]],
+                            },
+                            {
+                                "id": "c2",
+                                "name": "C2",
+                                "tier": 2,
+                                "slot": 1,
+                                "requires": [],
+                            },
+                            {
+                                "id": "x3",
+                                "name": "X3",
+                                "tier": 3,
+                                "slot": 0,
+                                "requires": [["a1", "b2", "c2"]],
+                            },
+                        ],
+                    }
+                )
+            )
+        )
+
+        and_nodes = [
+            node
+            for node in compiled.graph_content.nodes
+            if node.kind == V1_AND_KNOT_KIND
+        ]
+        self.assertEqual(1, len(and_nodes))
+        self.assertEqual(
+            ("dyn::tier_1::tier_2::0", "dyn::tier_1::tier_2::1"),
+            tuple(str(rail_id) for rail_id in and_nodes[0].allowed_y_rail_ids),
+        )
+        self.assertEqual(5, len(compiled.graph_content.route_requirements))
 
     def test_authored_tier_rail_ids_cover_all_levels_up_to_max(self) -> None:
         tree = load_skill_tree_requirement_spec(

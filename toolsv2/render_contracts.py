@@ -159,10 +159,31 @@ class RepeatedSpanInstruction:
         _ensure_unique_keys("RepeatedSpanInstruction.attributes", self.attributes)
 
 
+@dataclass(frozen=True, slots=True)
+class RasterStampInstruction:
+    """One generic inline-RGBA placement instruction."""
+
+    layer_id: VisualLayerId
+    origin_x: int
+    origin_y: int
+    rgba_rows: tuple[tuple[tuple[int, int, int, int], ...], ...]
+    composition_operator: CompositionOperatorId | None = None
+    attributes: Attributes = ()
+
+    def __post_init__(self) -> None:
+        if not self.rgba_rows:
+            raise ValueError("RasterStampInstruction.rgba_rows must not be empty")
+        row_lengths = {len(row) for row in self.rgba_rows}
+        if len(row_lengths) != 1:
+            raise ValueError("RasterStampInstruction.rgba_rows must be rectangular")
+        _ensure_unique_keys("RasterStampInstruction.attributes", self.attributes)
+
+
 RenderInstruction = (
     SpriteStampInstruction
     | PixelMaskStampInstruction
     | RepeatedSpanInstruction
+    | RasterStampInstruction
 )
 
 

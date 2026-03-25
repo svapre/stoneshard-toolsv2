@@ -1,0 +1,140 @@
+{
+  "tree_id": "ricochet",
+  "background_base": "BASE_BACKGROUND.png",
+  "skills": [
+    {
+      "id": "deflection",
+      "name": "Deflection",
+      "tier": 1,
+      "slot": 0,
+      "requires": []
+    },
+    {
+      "id": "stance",
+      "name": "Stance",
+      "tier": 1,
+      "slot": 1,
+      "requires": []
+    },
+    {
+      "id": "momentum",
+      "name": "Momentum",
+      "tier": 1,
+      "slot": 2,
+      "requires": []
+    },
+    {
+      "id": "driving",
+      "name": "Driving",
+      "tier": 1,
+      "slot": 3,
+      "requires": []
+    },
+    {
+      "id": "keen",
+      "name": "Keen",
+      "tier": 2,
+      "slot": 0,
+      "requires": [
+        [
+          "deflection"
+        ],
+        [
+          "stance"
+        ]
+      ]
+    },
+    {
+      "id": "skipper",
+      "name": "Skipper",
+      "tier": 2,
+      "slot": 1,
+      "requires": [
+        [
+          "stance"
+        ],
+        [
+          "momentum"
+        ]
+      ]
+    },
+    {
+      "id": "tear",
+      "name": "Tear",
+      "tier": 2,
+      "slot": 2,
+      "requires": [
+        [
+          "momentum"
+        ],
+        [
+          "driving"
+        ]
+      ]
+    },
+    {
+      "id": "rebound",
+      "name": "Rebound",
+      "tier": 3,
+      "slot": 0,
+      "requires": [
+        [
+          "keen",
+          "skipper"
+        ]
+      ]
+    },
+    {
+      "id": "angle",
+      "name": "Angle",
+      "tier": 3,
+      "slot": 1,
+      "requires": [
+        [
+          "keen",
+          "skipper"
+        ],
+        [
+          "tear",
+          "skipper"
+        ]
+      ]
+    },
+    {
+      "id": "jagged",
+      "name": "Jagged",
+      "tier": 3,
+      "slot": 2,
+      "requires": [
+        [
+          "skipper",
+          "tear"
+        ]
+      ]
+    },
+    {
+      "id": "savage",
+      "name": "Savage",
+      "tier": 4,
+      "slot": 0,
+      "requires": [
+        [
+          "rebound",
+          "angle"
+        ]
+      ]
+    },
+    {
+      "id": "blood",
+      "name": "Blood",
+      "tier": 4,
+      "slot": 1,
+      "requires": [
+        [
+          "angle",
+          "jagged"
+        ]
+      ]
+    }
+  ]
+}

@@ -20,6 +20,8 @@ from toolsv2.graph_content import (
     GraphContentPortAttachmentRequirement,
     GraphContentRouteRequirement,
 )
+from toolsv2.placement_policy_catalog import resolve_graph_content_candidate_ranker
+from toolsv2.placement_policy_contracts import PlacementCandidateRanker
 from toolsv2.production_family_catalog import build_v1_production_node_family_catalog
 from toolsv2.production_node_definitions import (
     build_v1_production_visual_profile_catalog,
@@ -59,6 +61,7 @@ class LoadedGraphContent:
     schema_view: StaticRouteRequirementSchemaView
     port_requirements_by_node_id: Mapping[NodeId, tuple[PortAttachmentRequirement, ...]]
     routing_policy: RoutingPolicy
+    placement_candidate_ranker: PlacementCandidateRanker | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -80,6 +83,8 @@ class LoadedGraphContent:
             raise TypeError("visual_profile_catalog must be StaticVisualProfileCatalog")
         if not isinstance(self.schema_view, StaticRouteRequirementSchemaView):
             raise TypeError("schema_view must be StaticRouteRequirementSchemaView")
+        if self.placement_candidate_ranker is not None and not callable(self.placement_candidate_ranker):
+            raise TypeError("placement_candidate_ranker must be callable when supplied")
 
 
 def load_v1_production_definitions(
@@ -239,4 +244,5 @@ def load_v1_graph_content(content: GraphContentModel) -> LoadedGraphContent:
             content.screening_port_requirements
         ),
         routing_policy=content.routing_policy,
+        placement_candidate_ranker=resolve_graph_content_candidate_ranker(content),
     )

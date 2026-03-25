@@ -34,12 +34,17 @@ class BandLayoutPattern:
 
     pattern_id: str
     relative_positions: tuple[Fraction, ...]
+    supersedes_pattern_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.pattern_id:
             raise ValueError("BandLayoutPattern.pattern_id must not be empty")
         if not self.relative_positions:
             raise ValueError("BandLayoutPattern.relative_positions must not be empty")
+        if self.pattern_id in self.supersedes_pattern_ids:
+            raise ValueError("BandLayoutPattern must not supersede itself")
+        if len(self.supersedes_pattern_ids) != len(set(self.supersedes_pattern_ids)):
+            raise ValueError("BandLayoutPattern.supersedes_pattern_ids must be unique")
         previous = Fraction(0, 1)
         for position in self.relative_positions:
             if position <= 0 or position >= 1:
@@ -91,6 +96,7 @@ def build_v1_vanilla_skill_tree_layout_profile() -> LayoutProfile:
                     Fraction(1, 2) - Fraction(1, 14),
                     Fraction(1, 2) + Fraction(1, 14),
                 ),
+                supersedes_pattern_ids=(V1_VANILLA_SINGLE_MID_BAND_LAYOUT_ID,),
             ),
         ),
     )
@@ -118,6 +124,18 @@ def get_band_layout_pattern(
         if pattern.pattern_id == pattern_id:
             return pattern
     raise KeyError(f"Unknown band layout pattern: {pattern_id}")
+
+
+def band_layout_pattern_supersedes(
+    layout_profile: LayoutProfile,
+    *,
+    stronger_pattern_id: str,
+    weaker_pattern_id: str,
+) -> bool:
+    """Return whether one profile-owned band layout pattern supersedes another."""
+
+    stronger = get_band_layout_pattern(layout_profile, stronger_pattern_id)
+    return weaker_pattern_id in stronger.supersedes_pattern_ids
 
 
 def build_band_expansion_step_for_layout_pattern(
