@@ -7,6 +7,7 @@ from toolsv2.layout_profiles import (
     V1_VANILLA_SKILL_TREE_LAYOUT_PROFILE_ID,
     V1_VANILLA_FOUR_TIER_SPLIT_PAIR_BAND_LAYOUT_ID,
     V1_VANILLA_SINGLE_MID_BAND_LAYOUT_ID,
+    band_layout_pattern_supersedes,
     build_minimum_active_grid_for_layout_profile,
     build_band_expansion_step_for_layout_pattern,
     build_v1_vanilla_skill_tree_layout_profile,
@@ -57,6 +58,28 @@ class LayoutProfilesTests(unittest.TestCase):
         self.assertEqual(
             (Fraction(3, 7), Fraction(4, 7)),
             pattern.relative_positions,
+        )
+        self.assertEqual(
+            (V1_VANILLA_SINGLE_MID_BAND_LAYOUT_ID,),
+            pattern.supersedes_pattern_ids,
+        )
+
+    def test_vanilla_split_pair_supersedes_single_mid(self) -> None:
+        profile = build_v1_vanilla_skill_tree_layout_profile()
+
+        self.assertTrue(
+            band_layout_pattern_supersedes(
+                profile,
+                stronger_pattern_id=V1_VANILLA_FOUR_TIER_SPLIT_PAIR_BAND_LAYOUT_ID,
+                weaker_pattern_id=V1_VANILLA_SINGLE_MID_BAND_LAYOUT_ID,
+            )
+        )
+        self.assertFalse(
+            band_layout_pattern_supersedes(
+                profile,
+                stronger_pattern_id=V1_VANILLA_SINGLE_MID_BAND_LAYOUT_ID,
+                weaker_pattern_id=V1_VANILLA_FOUR_TIER_SPLIT_PAIR_BAND_LAYOUT_ID,
+            )
         )
 
     def test_band_expansion_step_builder_uses_profile_pattern_positions(self) -> None:

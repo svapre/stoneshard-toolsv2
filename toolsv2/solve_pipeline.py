@@ -135,6 +135,7 @@ class V1CurrentGridSolvePipeline:
             port_requirements_by_node_id=loaded_content.port_requirements_by_node_id,
             max_seeds=self.max_placement_seeds,
             minimum_same_row_gap=self.minimum_same_row_gap,
+            candidate_junction_ranker=loaded_content.placement_candidate_ranker,
         )
         if placement_result.status != "success":
             return CurrentGridSolveResult(

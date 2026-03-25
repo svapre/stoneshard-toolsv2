@@ -15,6 +15,7 @@ from toolsv2.render_behavior_registry import (
 from toolsv2.render_contracts import (
     PixelMaskStampInstruction,
     PrimitiveExpander,
+    RasterStampInstruction,
     RenderInstruction,
     RenderResolver,
     RepeatedSpanInstruction,
@@ -27,6 +28,7 @@ from toolsv2.render_layout_profiles import (
 )
 from toolsv2.render_resolver import build_v1_render_resolver
 from toolsv2.render_template_loader import (
+    LoadedRenderTemplate,
     RenderTemplateLoader,
     build_cached_render_template_loader,
 )
@@ -39,6 +41,8 @@ def _instruction_sort_key(
     visual_profile_catalog: VisualProfileCatalog,
 ) -> tuple[int, int]:
     layer_spec = visual_profile_catalog.render_layer_spec(instruction.layer_id)
+    if isinstance(instruction, RasterStampInstruction):
+        return (layer_spec.order, 1)
     return (layer_spec.order, 0)
 
 
@@ -88,11 +92,33 @@ def _blank_canvas(render_layout_profile: RenderLayoutProfile) -> Image.Image:
     )
 
 
+def _image_from_rgba_rows(
+    rgba_rows: tuple[tuple[tuple[int, int, int, int], ...], ...],
+) -> Image.Image:
+    height = len(rgba_rows)
+    width = len(rgba_rows[0])
+    image = Image.new("RGBA", (width, height))
+    for y, row in enumerate(rgba_rows):
+        for x, pixel in enumerate(row):
+            image.putpixel((x, y), pixel)
+    return image
+
+
+@dataclass(frozen=True, slots=True)
+class RenderedLayerImage:
+    """One intermediate per-layer canvas exposed by the base renderer."""
+
+    layer_id: str
+    image: Image.Image
+
+
 @dataclass(frozen=True, slots=True)
 class BaseRenderResult:
     """One fully prepared base-render result."""
 
     image: Image.Image
+    background_image: Image.Image
+    layer_images: tuple[RenderedLayerImage, ...]
     resolved_objects: tuple[ResolvedObjectRenderSpec, ...]
     instructions: tuple[RenderInstruction, ...]
 
@@ -181,7 +207,26 @@ class V1BaseRenderer:
                     template,
                     top_left_x=center_x - (template.width // 2),
                     top_left_y=center_y - (template.height // 2),
-                )
+            )
+            return
+
+        if isinstance(instruction, RasterStampInstruction):
+            composition_rule = self.behavior_registry.composition_rule_for(
+                instruction.composition_operator or "overwrite"
+            )
+            composition_rule(
+                canvas,
+                instruction,
+                LoadedRenderTemplate(
+                    template_key="__inline__",
+                    kind="sprite_ref",
+                    width=len(instruction.rgba_rows[0]),
+                    height=len(instruction.rgba_rows),
+                    image=_image_from_rgba_rows(instruction.rgba_rows),
+                ),
+                top_left_x=instruction.origin_x,
+                top_left_y=instruction.origin_y,
+            )
             return
 
         raise TypeError(f"Unsupported render instruction type: {type(instruction)!r}")
@@ -202,17 +247,23 @@ class V1BaseRenderer:
             mapper,
             visual_profile_catalog,
         )
-        finalized_objects: list[ResolvedObjectRenderSpec] = []
+        prefinalized_instructions: list[RenderInstruction] = []
+        expandable_objects: list[ResolvedObjectRenderSpec] = []
         for resolved_object in resolved_objects:
-            finalized_objects.extend(
-                self.behavior_registry.finalize_resolved_object(
-                    resolved_object,
-                    visual_profile_catalog,
-                )
+            finalized = self.behavior_registry.finalize_resolved_object(
+                resolved_object,
+                visual_profile_catalog,
+                self.template_loader,
             )
-        instructions = self.primitive_expander(
-            tuple(finalized_objects),
-            visual_profile_catalog,
+            if finalized is None:
+                expandable_objects.append(resolved_object)
+                continue
+            prefinalized_instructions.extend(finalized)
+        instructions = prefinalized_instructions + list(
+            self.primitive_expander(
+                tuple(expandable_objects),
+                visual_profile_catalog,
+            )
         )
         ordered_instructions = tuple(
             sorted(
@@ -224,16 +275,37 @@ class V1BaseRenderer:
             )
         )
 
-        canvas = self._background_canvas(render_layout_profile)
+        background_image = self._background_canvas(render_layout_profile)
+        layer_canvases: dict[str, Image.Image] = {}
         for instruction in ordered_instructions:
+            layer_key = str(instruction.layer_id)
+            layer_canvas = layer_canvases.get(layer_key)
+            if layer_canvas is None:
+                layer_canvas = _blank_canvas(render_layout_profile)
+                layer_canvases[layer_key] = layer_canvas
             self._compose_instruction(
-                canvas,
+                layer_canvas,
                 instruction,
                 visual_profile_catalog,
             )
+        layer_images = tuple(
+            RenderedLayerImage(
+                layer_id=layer_id,
+                image=layer_canvases[layer_id],
+            )
+            for layer_id in sorted(
+                layer_canvases,
+                key=lambda current_layer_id: visual_profile_catalog.render_layer_spec(current_layer_id).order,
+            )
+        )
+        canvas = background_image.copy()
+        for layer_image in layer_images:
+            canvas.alpha_composite(layer_image.image)
         return BaseRenderResult(
             image=canvas,
-            resolved_objects=tuple(finalized_objects),
+            background_image=background_image,
+            layer_images=layer_images,
+            resolved_objects=resolved_objects,
             instructions=ordered_instructions,
         )
 

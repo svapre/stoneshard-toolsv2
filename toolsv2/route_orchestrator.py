@@ -162,13 +162,6 @@ def _group_route_requirements_by_source(
     )
 
 
-def _flow_arc_sort_key(flow_arc: tuple[PortRef, PortRef]) -> tuple[tuple[tuple[str, str], str], tuple[tuple[str, str], str]]:
-    return (
-        _port_ref_sort_key(flow_arc[0]),
-        _port_ref_sort_key(flow_arc[1]),
-    )
-
-
 def _flow_arcs_from_route_plan(
     route_plan: TentativeRoutePlan,
 ) -> tuple[tuple[PortRef, PortRef], ...]:
@@ -217,7 +210,6 @@ def _reachable_flow_is_acyclic(
         adjacency.setdefault(from_port_ref, []).append(to_port_ref)
         indegree_by_port_ref[to_port_ref] = indegree_by_port_ref.get(to_port_ref, 0) + 1
 
-    root_port_ref_set = set(root_port_refs)
     for root_port_ref in root_port_refs:
         if indegree_by_port_ref.get(root_port_ref, 0) != 0:
             return False
@@ -284,10 +276,11 @@ def _is_source_flow_extension_valid(
         current_source_object_ref,
         route_requirements,
     )
+    root_port_ref_set = set(root_port_refs)
     for port_ref in reachable_port_refs:
         owner_ref = port_ref.owner_ref
         if owner_ref == current_source_object_ref:
-            if port_ref not in set(root_port_refs):
+            if port_ref not in root_port_ref_set:
                 return False
             continue
         if isinstance(owner_ref, Junction):
@@ -408,6 +401,7 @@ class V1RouteOrchestrator:
                         failure_stage="commit",
                         last_successful_state=current_state,
                     )
+
                 commit_result = self.commit(current_state, router_result.route_plan)
                 if commit_result.status != "success" or commit_result.new_state is None:
                     return OrchestrationResult(

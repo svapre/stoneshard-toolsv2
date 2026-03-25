@@ -57,6 +57,7 @@
 - The current vanilla layout profile also carries:
   - a midpoint band-layout pattern
   - a 4-tier split-pair band-layout pattern
+- A stronger profile-owned band pattern may explicitly supersede a weaker one for the same authored band; compatible same-band lower-bound demands must resolve through profile data rather than being treated as automatic contradictions.
 - The initial active grid for one solve may be stronger than the bare authored-tier minimum if a reusable estimator can prove profile-owned lower-bound band requirements from the content.
 - Such lower-bound estimation is separate from both placement/routing and the multi-grid retry loop.
 
@@ -84,6 +85,7 @@
   - AND knot: `top` = `1`, `left` = `1`, `right` = `1`, `bottom` unbounded
 - Current production graph content must declare source/sink port allowances explicitly for each route requirement rather than inferring them from node family.
 - Current schema-view allowance lookup may be requirement-specific; it must not collapse distinct required gate-input ports into one generic per-kind allowance.
+- Graph content may also select an external placement-candidate ranking policy by id.
 - Only nodes may change junction behavior during screening.
 - Non-node junction connection state is ignored during screening.
 
@@ -91,7 +93,7 @@
 
 - `OR` does not require a separate structural node. All required inputs connect directly to the target.
 - `AND` is represented as an implied node, but it does not automatically add a new y rail.
-- Current content-side implied `AND` compilation constrains the gate to the inter-tier band it mediates; that band-local y allowance is not a solver-core special case.
+- An implied `AND` node lives on the sink-adjacent inter-tier band, even if some of its inputs originate from higher tiers.
 - A dynamic/implied node must first try to fit on the current active grid.
 - New rails are added only if the current grid cannot support legal placement or legal routing.
 
@@ -130,8 +132,10 @@ Clarifications:
 - The placement phase may use only pre-routing legality tests.
 - Exact routing is not allowed during domain construction or propagation.
 - Smallest-domain-first is the frozen pass-1 branching rule.
+- Pass-1 may use an injected external candidate-ranking policy to order already-legal junction candidates for the current branch node.
 - Deterministic tie-breaks in pass 1 exist for reproducibility only.
 - Deterministic candidate ordering in pass 1 is traversal only, not a solver objective.
+- Current skill-tree content uses a route-graph spring candidate-ranking policy outside solver core to prefer slot assignments closer to the current graph-driven x equilibrium.
 
 ### 3.6 Domains
 
@@ -139,7 +143,6 @@ Clarifications:
 - `Dom_x` and `Dom_y` may be used internally as construction helpers only.
 - Tier/authored nodes have fixed `Dom_y`.
 - Dynamic nodes use currently active logical y rails that are allowed for them.
-- Current content-side implied `AND` nodes use only the conventional dynamic rail ids for their mediated adjacent-tier band; they do not float across unrelated authored tiers.
 - Current ordered same-row raw-domain construction uses row order plus the explicitly supplied minimum same-row spacing hard constraint on the current active x rails.
 - If those hard constraints leave no legal current-grid ordered-row assignment, the resulting domains are empty and the current grid is contradictory for that placement attempt.
 - Domains are reduced by proof only.
@@ -185,22 +188,12 @@ Clarifications:
 
 - Exact routing begins only after all nodes are placed.
 - Routing starts from the adjacent junction of the chosen source or output port, not from the node center.
-- Current exact-routing orchestration is source-owned:
-  - requirements are grouped by source object
-  - first source appearance is preserved
-  - original in-source requirement order is preserved
-- Physical edge capability and source-owned flow semantics are distinct:
-  - built edges remain physically bidirectional by default unless explicitly directional
-  - source-to-sink flow is validated separately as directed per-source flow state
 - A successful exact route may update:
   - node-port usage
   - non-node junction local connections
   - engaged or locked entries
   - terminal attachments
-- Newly committed tentative connections are currently materialized as physically `bidirectional` unless the route step explicitly requests a directional edge.
-- Additive branching inside the current source-owned route tree is legal.
-- Additive suffix reuse inside the current source-owned flow DAG is legal as long as the result stays acyclic.
-- The current source may reach only sinks explicitly declared for that source; foreign non-sink node ports remain illegal.
+- A newly committed route may not widen or modify an already engaged entry's exit set.
 
 ### 3.11 Refinement phase
 
@@ -250,8 +243,8 @@ Clarifications:
   - road: order 3
   - object body: order 4
   - object foreground: order 5
-- Layer composition is data-driven. Default overwrite behavior is allowed unless a layer/profile defines another operator.
-- `max_light` is one supported composition operator and remains important for the road/junction layer.
+- Layer composition is data-driven. Default inter-object composition is upper-over-lower overwrite respecting alpha unless a layer/profile defines another operator.
+- `max_light` is one supported composition operator and remains important for object-local composition such as junction-piece assembly, not as a required global road-layer interaction rule.
 - Exact composition behavior is provided through an external callable registry; renderer core dispatches to declared rules instead of inferring behavior from asset contents.
 - Object-specific pre-render finalization may also be provided through an external callable registry rather than hardcoded in renderer core.
 - Derived visual variants such as rotations, mirrors, and local placement offsets are profile data, not renderer guesses.
@@ -268,6 +261,7 @@ Clarifications:
 - External edge families are not hardcoded in the renderer.
 - V1 external span rendering supports straight repeated primitives only, using the current straight external connection family.
 - The current straight external connection family is axis-aligned only and uses repeated `3x1` / `1x3` primitives.
+- The current canonical straight primitive source asset is the `top-bottom` form; horizontal straight spans/pieces use the rotated variant.
 - In the current implemented v1 primitive expander, an axis-aligned straight connection family may use:
   - one canonical primitive plus a profile-owned transform
   - or explicit oriented templates
@@ -295,17 +289,28 @@ Clarifications:
   - uses an explicit render-layout preset for canvas size, background, and rail pixel mapping
   - loads templates through a cached template loader
   - dispatches composition only through the external behavior registry
+  - runs generic rule-driven object finalization before primitive expansion where a profile declares that need
   - supports the current base output from sprite stamps and repeated straight spans
 - The current implemented export/testing helper may:
   - render one committed runtime snapshot to the base image
   - render one successful current-grid solve result to the base image
   - save that base image for smoke testing and manual review
+- The current implemented glow export boundary is split into:
+  - a generic manifest/schema layer in `toolsv2/glow`
+  - a Stoneshard/MSL-specific adapter layer in `toolsv2/adapters/msl_stoneshard`
+- The current implemented glow pipeline may:
+  - decompose one successful solved graph into reusable glow sections
+  - rasterize those sections into cropped red-mask PNGs
+  - save a generic glow manifest JSON
+  - emit Stoneshard `Other_24`-style GML through the adapter layer
+- Glow export dependency groups mirror Stoneshard runtime wiring:
+  - point dependency groups are emitted through `addConnectedPoints(...)`
+  - line dependency groups are emitted through `addConnectedLines(...)`
+- Stoneshard/MSL file/GML generation must not leak into solver, placement, routing, or generic render core.
 - The current implemented file runner may:
   - load the current requirement-spec JSON shape
   - compile it into explicit graph content
-  - run the current default estimated full solve loop
-  - demand a single mid-band rail for current implied single-sink mediated `AND` gates and a split pair for current same-band multi-sink fanout gates
-  - upgrade only already-demanded bands through its default expansion helper instead of widening unrelated bands
+  - run the current default estimated full solve loop, including the built-in adjacent-authored-flow, single-sink-mediated, and same-band multi-sink split lower-bound estimator rules
   - save the base PNG with default output-path behavior
 
 ## 4. Frozen Solve Pipeline
@@ -359,7 +364,7 @@ Guessed geometric heuristics are not allowed screening contradictions.
 - Screening may depend on existing non-node road state.
 - Routing policy shortcuts may replace the routing policy itself.
 - Port offsets affect path length.
-- `OR` requires a separate structural node.
+- `OR` does not require a separate structural node in the current requirement compiler; alternate prerequisite groups compile as independent allowed source->sink routes to the same sink.
 - Exact routing may not be used during domain construction, propagation, or screening.
 - Renderer policy may decide legality or buildability.
 - Renderer must infer object placement, span shape, or local connection patterns from raw graph semantics.

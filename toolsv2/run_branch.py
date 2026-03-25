@@ -14,6 +14,7 @@ from toolsv2.grid_expansion_policy import build_v1_explicit_band_expansion_polic
 from toolsv2.layout_estimation import (
     LayoutDemandEstimate,
     V1RuleBasedLayoutDemandEstimator,
+    build_adjacent_authored_flow_band_rule,
     build_single_sink_mediated_band_rule,
     build_same_band_multi_sink_split_pattern_rule,
 )
@@ -159,6 +160,9 @@ def run_v1_requirement_tree(
         layout_profile=layout_profile,
         authored_tier_rail_ids=authored_tier_rail_ids_for_tree(requirement_spec),
         band_layout_demand_rules=(
+            build_adjacent_authored_flow_band_rule(
+                pattern_id=V1_VANILLA_SINGLE_MID_BAND_LAYOUT_ID,
+            ),
             build_single_sink_mediated_band_rule(
                 pattern_id=V1_VANILLA_SINGLE_MID_BAND_LAYOUT_ID,
             ),

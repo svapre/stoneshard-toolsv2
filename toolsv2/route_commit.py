@@ -21,7 +21,6 @@ from toolsv2.solver_runtime import (
     PortGraphState,
     RuntimeObjectSet,
     can_port_ref_accept_new_attachment,
-    is_edge_id_usable,
     is_port_ref_usable,
 )
 
@@ -39,15 +38,6 @@ def _port_ref_sort_key(port_ref: PortRef) -> tuple[tuple[str, str], str]:
     return (_object_ref_sort_key(port_ref.owner_ref), str(port_ref.owner_local_key))
 
 
-def _entry_context_sort_key(
-    entry_context: EntryContext,
-) -> tuple[tuple[tuple[str, str], str], str]:
-    return (
-        _port_ref_sort_key(entry_context.current_port_ref),
-        "" if entry_context.incoming_edge_id is None else str(entry_context.incoming_edge_id),
-    )
-
-
 def _edge_lookup(state: PortGraphState) -> dict[PortEdgeId, PortEdge]:
     return {
         edge.edge_id: edge
@@ -58,7 +48,6 @@ def _edge_lookup(state: PortGraphState) -> dict[PortEdgeId, PortEdge]:
 def _port_pair_key(port_ref_a: PortRef, port_ref_b: PortRef) -> tuple[PortRef, PortRef]:
     ordered = tuple(sorted((port_ref_a, port_ref_b), key=_port_ref_sort_key))
     return ordered[0], ordered[1]
-
 
 def _make_edge_id(route_plan: TentativeRoutePlan, step_index: int) -> PortEdgeId:
     return PortEdgeId(f"committed::{route_plan.route_requirement_id}::step::{step_index}")

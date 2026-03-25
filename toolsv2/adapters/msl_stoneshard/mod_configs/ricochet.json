@@ -1,0 +1,71 @@
+{
+  "config_id": "ricochet",
+  "tree_json_path": "../../../examples/ricochet.json",
+  "branch_asset_name": "spr_ricochet_branch",
+  "other_24_relpath": "Codes/gml_Object_o_skill_category_ricochet_Other_24.gml",
+  "create_0_relpath": "Codes/gml_Object_o_skill_category_ricochet_Create_0.gml",
+  "sprites_relpath": "Sprites",
+  "generated_relpath": "Generated/toolsv2",
+  "point_bindings": [
+    {
+      "point_id": "deflection",
+      "variable_name": "_deflection",
+      "skill_object_name": "o_pass_skill_ricochet_t1a"
+    },
+    {
+      "point_id": "stance",
+      "variable_name": "_stance",
+      "skill_object_name": "o_skill_ricochet_glancing_ico"
+    },
+    {
+      "point_id": "momentum",
+      "variable_name": "_momentum",
+      "skill_object_name": "o_pass_skill_ricochet_t2b"
+    },
+    {
+      "point_id": "driving",
+      "variable_name": "_driving",
+      "skill_object_name": "o_pass_skill_ricochet_t1"
+    },
+    {
+      "point_id": "keen",
+      "variable_name": "_keen",
+      "skill_object_name": "o_pass_skill_ricochet_t2a"
+    },
+    {
+      "point_id": "skipper",
+      "variable_name": "_skipper",
+      "skill_object_name": "o_pass_skill_ricochet_t3"
+    },
+    {
+      "point_id": "tear",
+      "variable_name": "_tear",
+      "skill_object_name": "o_pass_skill_ricochet_t4"
+    },
+    {
+      "point_id": "rebound",
+      "variable_name": "_rebound",
+      "skill_object_name": "o_pass_skill_ricochet_t3a"
+    },
+    {
+      "point_id": "angle",
+      "variable_name": "_angle",
+      "skill_object_name": "o_pass_skill_ricochet_t1b"
+    },
+    {
+      "point_id": "jagged",
+      "variable_name": "_jagged",
+      "skill_object_name": "o_pass_skill_ricochet_t3c"
+    },
+    {
+      "point_id": "savage",
+      "variable_name": "_savage",
+      "skill_object_name": "o_pass_skill_ricochet_t5"
+    },
+    {
+      "point_id": "blood",
+      "variable_name": "_blood",
+      "skill_object_name": "o_pass_skill_ricochet_t6"
+    }
+  ]
+}
